@@ -18,15 +18,16 @@ except ImportError:
     AI_AVAILABLE = False
 
 # ---------- Configuration ----------
-USE_LOCAL_AI = True          # Set False to use template only
+USE_LOCAL_AI = True          # Set False to disable AI and use templates
 DB_PATH = "pipeline_vault.db"
 MODEL_NAME = "microsoft/phi-2"  # ~2.7GB, runs on CPU
 
-# ---------- Database with schema migration ----------
+# ---------- Database with automatic schema migration ----------
 def get_db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 def ensure_table_schema():
+    """Add any missing columns to Opportunities without dropping data."""
     conn = get_db()
     c = conn.cursor()
     c.execute("PRAGMA table_info(Opportunities)")
@@ -35,7 +36,7 @@ def ensure_table_schema():
         "GeneratedCV": "TEXT",
         "GeneratedCL": "TEXT",
         "GeneratedML": "TEXT",
-        "AppliedDate": "TEXT"  # for tracking when applied
+        "AppliedDate": "TEXT"
     }
     for col, typ in needed.items():
         if col not in existing:
@@ -100,10 +101,11 @@ def reset_db():
     conn.commit()
     conn.close()
 
+# Run migration on every startup
 if not os.path.exists(DB_PATH):
     reset_db()
 else:
-    ensure_table_schema()
+    ensure_table_schema()  # add missing columns if any
 
 # ---------- Database helper functions ----------
 def fetch_all():
@@ -189,7 +191,7 @@ def generate_text(prompt, max_length=512):
         generated = generated[len(prompt):].strip()
     return generated
 
-# ---------- AI‑based generation with profile + JD ----------
+# ---------- AI-based generation (with fallback to templates) ----------
 def align_profile(profile, description):
     achievements = [a.strip() for a in profile['Achievements'].split(';') if a.strip()]
     skills = [s.strip() for s in profile['Skills'].split(',') if s.strip()]
@@ -198,8 +200,7 @@ def align_profile(profile, description):
     matched_skills = [sk for sk in skills if any(tok in sk.lower() for tok in desc_tokens)]
     return matched_ach or achievements[:3], matched_skills or skills[:5]
 
-def generate_cv_ai(profile, description):
-    # If AI enabled, use model; else fallback to template
+def generate_cv(profile, description):
     if USE_LOCAL_AI and AI_AVAILABLE:
         prompt = f"""You are an expert CV writer. Based on the profile below and the job description, write a professional CV in plain text (no markdown). Use clear sections: Contact, Education, Experience, Achievements, Skills, Certifications. Tailor it to the job.
 
@@ -242,7 +243,7 @@ Skills (aligned to opportunity):
 Certifications:
 {profile['Certifications']}"""
 
-def generate_cover_letter_ai(profile, description):
+def generate_cover_letter(profile, description):
     if USE_LOCAL_AI and AI_AVAILABLE:
         prompt = f"""Write a compelling cover letter (3 paragraphs) for the following opportunity. The applicant is {profile['Name']}. Use the job description to highlight relevant achievements and skills.
 
@@ -268,7 +269,7 @@ Thank you for considering my application. I look forward to the opportunity to d
 Sincerely,
 {profile['Name']}"""
 
-def generate_motivation_letter_ai(profile, description):
+def generate_motivation_letter(profile, description):
     if USE_LOCAL_AI and AI_AVAILABLE:
         prompt = f"""Write a motivation letter for a scholarship/fellowship program. The applicant is {profile['Name']} from Ethiopia, with a mission to use GeoAI for water resource management. Explain why they are a perfect fit and how they will contribute.
 
@@ -362,6 +363,8 @@ else:
 # ------------------- CHARTS -------------------
 if not df.empty:
     # Deadline urgency bar chart
+    today = pd.Timestamp.today().normalize()
+    df['DeadlineDate'] = pd.to_datetime(df['Deadline']).dt.normalize()
     df['Urgency'] = df['DeadlineDate'].apply(lambda x: 'Urgent' if (x - today).days <= 10 else ('Upcoming' if (x - today).days <= 30 else 'Safe'))
     urgency_counts = df['Urgency'].value_counts().reset_index()
     urgency_counts.columns = ['Urgency', 'Count']
@@ -422,9 +425,9 @@ else:
                 with col_gen:
                     if st.button("⚡ Generate Documents (AI)", key="gen_docs"):
                         with st.spinner("🤖 AI is writing your tailored documents..."):
-                            cv = generate_cv_ai(profile, description)
-                            cl = generate_cover_letter_ai(profile, description)
-                            ml = generate_motivation_letter_ai(profile, description)
+                            cv = generate_cv(profile, description)
+                            cl = generate_cover_letter(profile, description)
+                            ml = generate_motivation_letter(profile, description)
                             update_generated_docs(selected_id, cv, cl, ml)
                             st.success("✅ Documents generated and saved!")
                             st.rerun()

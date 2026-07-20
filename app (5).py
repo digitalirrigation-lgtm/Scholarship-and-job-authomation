@@ -246,4 +246,6 @@ with st.expander("➕ Add New Opportunity"):
         title = st.text_input("Title")
         org = st.text_input("Organization")
         cat = st.selectbox("Category", ["Scholarship","Job"])
-        deadline = st.date_input("Deadline", value=datetime.today().date()+timedelta(days=
+        deadline = st.date_input("Deadline", value=datetime.today().date()+timedelta(days=30))
+        link = st.text_input("Link (optional)")
+        description_input = st

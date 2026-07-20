@@ -242,4 +242,10 @@ with st.expander("➕ Add New Opportunity"):
         description_input = st.text_area("Description (optional)", height=100)
         if st.form_submit_button("Add Opportunity"):
             if title and org:
-                data = {"title
+                data = {
+                    "title": title,
+                    "organization": org,
+                    "category": cat,
+                    "deadline": deadline,
+                    "status": "Not Applied",
+                    "description": description_input

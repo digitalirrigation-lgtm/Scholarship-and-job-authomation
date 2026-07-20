@@ -1,9 +1,13 @@
-# app.py
 import streamlit as st
 import pandas as pd
-import pyodbc
+import sqlite3
 import re
+import requests
+from bs4 import BeautifulSoup
+import feedparser
+import altair as alt
 from datetime import datetime, timedelta
+import os
 
 # ==========================================
 # PAGE CONFIG
@@ -11,136 +15,414 @@ from datetime import datetime, timedelta
 st.set_page_config(layout="wide", page_title="🌍 Scholarship & Job AI Dashboard", page_icon="🎓")
 
 # ==========================================
-# DATABASE CONNECTION (SQL SERVER)
+# CUSTOM CSS – OCEAN WAVE BACKGROUND
 # ==========================================
-conn_str = (
-    "Driver={ODBC Driver 17 for SQL Server};"
-    "Server=DESKTOP-08UB9BT\\SQLEXPRESS;"
-    "Database=ScholarshipJobDB;"
-    "Trusted_Connection=yes;"
-)
+st.markdown("""
+<style>
+.stApp {
+    background: #0a192f;
+    position: relative;
+    overflow: hidden;
+}
+.wave-container {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 200%;
+    height: 200px;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.6;
+    background: repeating-linear-gradient(90deg, 
+        rgba(0, 150, 255, 0.2) 0%, 
+        rgba(0, 200, 255, 0.4) 25%, 
+        rgba(0, 150, 255, 0.2) 50%);
+    animation: waveMove 15s linear infinite;
+    border-radius: 50% 50% 0 0;
+}
+.wave-container2 {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 200%;
+    height: 150px;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.4;
+    background: repeating-linear-gradient(90deg, 
+        rgba(0, 200, 255, 0.1) 0%, 
+        rgba(0, 250, 255, 0.3) 30%, 
+        rgba(0, 200, 255, 0.1) 60%);
+    animation: waveMove2 20s linear infinite;
+    border-radius: 50% 50% 0 0;
+}
+@keyframes waveMove {
+    0% { transform: translateX(0) scaleY(0.8); }
+    50% { transform: translateX(-25%) scaleY(1.2); }
+    100% { transform: translateX(-50%) scaleY(0.8); }
+}
+@keyframes waveMove2 {
+    0% { transform: translateX(0) scaleY(0.6); }
+    50% { transform: translateX(-20%) scaleY(1.0); }
+    100% { transform: translateX(-40%) scaleY(0.6); }
+}
+.block-container {
+    position: relative;
+    z-index: 10 !important;
+}
+input, textarea, select {
+    background-color: rgba(26,54,68,0.9) !important;
+    color: white !important;
+    border: 1px solid #00f2fe !important;
+    border-radius: 8px;
+    padding: 8px;
+}
+.stTabs [data-baseweb="tab"] {
+    color: #8ab4f8 !important;
+    font-size: 16px;
+    font-weight: 600;
+}
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    color: #00f2fe !important;
+    border-bottom: 2px solid #00f2fe;
+}
+div[data-testid="stExpander"] {
+    background-color: rgba(32,58,67,0.5) !important;
+    border: 1px solid #00f2fe;
+    border-radius: 12px;
+}
+h1, h2, h3, h4, p, label {
+    color: white !important;
+}
+.stButton button {
+    background: linear-gradient(135deg, #00f2fe, #4facfe);
+    color: white;
+    border: none;
+    border-radius: 20px;
+    padding: 0.5rem 1.5rem;
+    font-weight: 600;
+    transition: all 0.3s ease;
+}
+.stButton button:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 20px #00f2fe;
+}
+.stDataFrame {
+    background: rgba(0,0,0,0.3);
+    border-radius: 12px;
+    border: 1px solid #00f2fe;
+}
+.stDataFrame table {
+    color: white !important;
+}
+.stDataFrame th {
+    background: rgba(0,242,254,0.2) !important;
+    color: #00f2fe !important;
+}
+</style>
+<div class="wave-container"></div>
+<div class="wave-container2"></div>
+""", unsafe_allow_html=True)
+
+# ==========================================
+# DATABASE (SQLite) – unified
+# ==========================================
+DB_PATH = "pipeline_vault.db"
 
 def get_db():
-    try:
-        return pyodbc.connect(conn_str)
-    except Exception as e:
-        st.error(f"❌ Database connection failed: {e}")
-        return None
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+    # Opportunities table (with user_description for pasted text)
+    c.execute('''CREATE TABLE IF NOT EXISTS opportunities (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category TEXT,
+        track TEXT,
+        title TEXT,
+        organization TEXT,
+        url TEXT,
+        days_left INTEGER,
+        moi_accepted TEXT,
+        fully_funded TEXT,
+        ethiopia_eligible TEXT,
+        degree_required TEXT,
+        sector TEXT,
+        status TEXT,
+        raw_description TEXT,
+        deadline TEXT,
+        is_recurring INTEGER DEFAULT 0,
+        created_at TEXT,
+        updated_at TEXT,
+        source TEXT,
+        user_description TEXT
+    )''')
+    # Master profile table
+    c.execute('''CREATE TABLE IF NOT EXISTS master_profile (
+        id INTEGER PRIMARY KEY,
+        Name TEXT,
+        Email TEXT,
+        Phone TEXT,
+        Location TEXT,
+        Education TEXT,
+        Experience TEXT,
+        Achievements TEXT,
+        Skills TEXT,
+        Certifications TEXT,
+        NarrativeContext TEXT,
+        NarrativeSolution TEXT,
+        NarrativeCTA TEXT,
+        GitHub TEXT
+    )''')
+    # Insert default profile if empty
+    c.execute("SELECT COUNT(*) FROM master_profile")
+    if c.fetchone()[0] == 0:
+        c.execute("""
+            INSERT INTO master_profile (
+                Name, Email, Phone, Location, Education, Experience,
+                Achievements, Skills, Certifications,
+                NarrativeContext, NarrativeSolution, NarrativeCTA, GitHub
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            "ZEDAGIM TESFAYE TANTU",
+            "zedagim100@gmail.com",
+            "+251-924-700-390",
+            "Jigjiga, Ethiopia",
+            "Bachelor of Engineering (B.Eng.) — Water Resource & Irrigation Engineering (GPA: 3.87/4.00, Ranked in Top 1%)",
+            "Water resource engineering, digital irrigation systems, satellite data analysis, climate prediction (drought/flood), Python/GIS/remote sensing.",
+            "Developed 4 open-source Hydro-Agritech Digital Twin prototypes; Digitized FAO-56 Penman-Monteith; Automated multi-spectral satellite telemetry; Synthesized 20-year multi-spectral trends; Conducted 200+ field interviews; Contributed to prevention of 456+ human trafficking cases.",
+            "Python, GIS, Remote Sensing, Machine Learning, Data Analysis, Project Management",
+            "Certified in GeoAI, Digital Irrigation Systems",
+            "Developing regions rely heavily on traditional agricultural systems that depend on guesswork, estimations, and seasonal rainfall variations without enough data arrays.",
+            "Deploy spaceborne remote sensing arrays and validated Earth Observation data (NASA/ESA/FAO) to replace subjective observation with empirical ground-truth calibration profiles.",
+            "I am ready to discuss my potential alignment with your goals at your representative's convenience. You can reach me at zedagim100@gmail.com or +251924700390. I respond within hours.",
+            "digitalirrigation-lgtm.github.io/Zedagim10"
+        ))
+    conn.commit()
+    conn.close()
+
+# Run init once
+init_db()
 
 # ==========================================
 # DATABASE HELPERS
 # ==========================================
-def fetch_all():
+def fetch_all_opportunities():
     conn = get_db()
-    if conn is None: return pd.DataFrame()
-    try:
-        df = pd.read_sql("SELECT * FROM Opportunities ORDER BY Id DESC", conn)
-    except Exception as e:
-        st.error(f"❌ Error reading Opportunities table: {e}")
-        df = pd.DataFrame()
+    df = pd.read_sql_query("SELECT * FROM opportunities ORDER BY id DESC", conn)
+    conn.close()
+    return df
+
+def fetch_profile():
+    conn = get_db()
+    df = pd.read_sql_query("SELECT * FROM master_profile LIMIT 1", conn)
     conn.close()
     return df
 
 def add_opportunity(data):
     conn = get_db()
-    if conn is None: return
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO Opportunities (Title, Organization, Category, Deadline, Status, CreatedAt, Saved)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            data["title"],
-            data["organization"],
-            data["category"],
-            data["deadline"].strftime("%Y-%m-%d"),
-            data["status"],
-            data["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
-            data["saved"]
-        ))
-        conn.commit()
-    except Exception as e:
-        st.error(f"❌ Error inserting opportunity: {e}")
+    c = conn.cursor()
+    cols = ", ".join(data.keys())
+    placeholders = ", ".join(["?"] * len(data))
+    sql = f"INSERT INTO opportunities ({cols}) VALUES ({placeholders})"
+    c.execute(sql, list(data.values()))
+    conn.commit()
+    conn.close()
+
+def update_opportunity(opp_id, column, value):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(f"UPDATE opportunities SET {column} = ? WHERE id = ?", (value, opp_id))
+    conn.commit()
     conn.close()
 
 def delete_opportunity(opp_id):
     conn = get_db()
-    if conn is None: return
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM Opportunities WHERE Id = ?", (opp_id,))
-        conn.commit()
-    except Exception as e:
-        st.error(f"❌ Error deleting opportunity: {e}")
+    c = conn.cursor()
+    c.execute("DELETE FROM opportunities WHERE id = ?", (opp_id,))
+    conn.commit()
     conn.close()
-
-def fetch_profile():
-    conn = get_db()
-    if conn is None: return pd.DataFrame()
-    try:
-        df = pd.read_sql("SELECT * FROM MasterProfile", conn)
-    except Exception as e:
-        st.error(f"❌ Error reading MasterProfile table: {e}")
-        df = pd.DataFrame()
-    conn.close()
-    return df
 
 # ==========================================
-# AI ALIGNMENT ENGINE
+# CRAWLER / RSS FUNCTIONS
+# ==========================================
+def fetch_rss_scholarships():
+    feeds = [
+        "https://www.scholarshipportal.com/rss/",
+        "https://www.opportunitydesk.org/feed/"
+    ]
+    count = 0
+    for feed_url in feeds:
+        try:
+            feed = feedparser.parse(feed_url)
+            for entry in feed.entries[:10]:
+                title = entry.title
+                link = entry.link
+                description = entry.get('description', '')
+                deadline_match = re.search(r'(\d{4}-\d{2}-\d{2})', description, re.I)
+                if deadline_match:
+                    deadline_str = deadline_match.group(1)
+                else:
+                    deadline_str = (datetime.now() + timedelta(days=45)).strftime('%Y-%m-%d')
+                days_left = (datetime.strptime(deadline_str, '%Y-%m-%d').date() - datetime.now().date()).days
+                opp = {
+                    'category': 'Scholarship Platform',
+                    'track': 'Fully Funded Scholarship',
+                    'title': title[:100],
+                    'organization': 'Scholarship Portal',
+                    'url': link,
+                    'days_left': days_left,
+                    'moi_accepted': 'Yes',
+                    'fully_funded': 'Yes',
+                    'ethiopia_eligible': 'Yes',
+                    'degree_required': 'Master',
+                    'sector': 'Water, Climate, Agriculture',
+                    'raw_description': description[:500],
+                    'deadline': deadline_str,
+                    'is_recurring': 0,
+                    'created_at': datetime.now().isoformat(),
+                    'updated_at': datetime.now().isoformat(),
+                    'source': 'RSS',
+                    'status': 'Not Applied',
+                    'user_description': ''
+                }
+                add_opportunity(opp)
+                count += 1
+        except Exception as e:
+            st.warning(f"RSS error for {feed_url}: {e}")
+    return count
+
+def scrape_link(url):
+    try:
+        page = requests.get(url, timeout=10)
+        soup = BeautifulSoup(page.content, "html.parser")
+        title = soup.title.string if soup.title else "Unknown"
+        text = soup.get_text()
+        deadline_match = re.search(r'(\d{4}-\d{2}-\d{2})', text, re.I)
+        if deadline_match:
+            deadline_str = deadline_match.group(1)
+        else:
+            deadline_str = (datetime.now() + timedelta(days=30)).strftime('%Y-%m-%d')
+        return {
+            'category': 'Scholarship',
+            'track': 'Unknown',
+            'title': title[:100],
+            'organization': 'Extracted from page',
+            'url': url,
+            'days_left': (datetime.strptime(deadline_str, '%Y-%m-%d').date() - datetime.now().date()).days,
+            'moi_accepted': 'Yes',
+            'fully_funded': 'Yes',
+            'ethiopia_eligible': 'Yes',
+            'degree_required': 'Not specified',
+            'sector': 'Various',
+            'raw_description': text[:1000],
+            'deadline': deadline_str,
+            'is_recurring': 0,
+            'created_at': datetime.now().isoformat(),
+            'updated_at': datetime.now().isoformat(),
+            'source': 'Web Scrape',
+            'status': 'Not Applied',
+            'user_description': ''
+        }
+    except Exception as e:
+        st.error(f"Scraping error: {e}")
+        return None
+
+# ==========================================
+# AI ALIGNMENT ENGINE (advanced)
 # ==========================================
 def extract_keywords(text):
+    stopwords = {'the','a','an','of','for','on','at','to','in','with','without','and','or','but','etc','from','by','as','is','are','was','were','be','been','being','have','has','had','do','does','did','will','would','could','should','may','might','must','shall','can'}
     words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
-    stopwords = {"the","and","for","with","from","into","about","without","etc"}
     return set(w for w in words if w not in stopwords)
 
 def align_profile(profile, description):
     achievements = [a.strip() for a in profile['Achievements'].split(';') if a.strip()]
     skills = [s.strip() for s in profile['Skills'].split(',') if s.strip()]
-    desc_tokens = extract_keywords(description or "")
-    matched_ach = [ach for ach in achievements if any(tok in ach.lower() for tok in desc_tokens)]
-    matched_skills = [sk for sk in skills if any(tok in sk.lower() for tok in desc_tokens)]
-    return matched_ach or achievements[:3], matched_skills or skills[:5]
+    desc_tokens = extract_keywords(description)
+    
+    # Score achievements
+    matched_ach = []
+    for ach in achievements:
+        ach_tokens = extract_keywords(ach)
+        score = len(ach_tokens.intersection(desc_tokens))
+        if score > 0:
+            matched_ach.append((ach, score))
+    matched_ach.sort(key=lambda x: x[1], reverse=True)
+    matched_ach_text = '; '.join([a[0] for a in matched_ach[:3]]) if matched_ach else profile['Achievements']
+    
+    # Score skills
+    matched_skills = []
+    for sk in skills:
+        sk_tokens = extract_keywords(sk)
+        score = len(sk_tokens.intersection(desc_tokens))
+        if score > 0:
+            matched_skills.append((sk, score))
+    matched_skills.sort(key=lambda x: x[1], reverse=True)
+    matched_skills_text = ', '.join([s[0] for s in matched_skills[:5]]) if matched_skills else profile['Skills']
+    
+    return matched_ach_text, matched_skills_text
 
 def generate_cv(profile, description):
     matched_ach, matched_skills = align_profile(profile, description)
     return f"""
+===========================================================
+🔥 CUSTOMIZED CV – ALIGNED TO TARGET
+===========================================================
 Name: {profile['Name']}
 Email: {profile['Email']}
 Phone: {profile['Phone']}
 Location: {profile['Location']}
+GitHub: {profile['GitHub']}
 
-Education:
+EDUCATION:
 {profile['Education']}
 
-Experience:
+EXPERIENCE:
 {profile['Experience']}
 
-Achievements (aligned):
-{'; '.join(matched_ach)}
+ACHIEVEMENTS (aligned to this opportunity):
+{matched_ach}
 
-Skills (aligned):
-{', '.join(matched_skills)}
+SKILLS (aligned to this opportunity):
+{matched_skills}
 
-Certifications:
+CERTIFICATIONS:
 {profile['Certifications']}
+
+===========================================================
 """
 
 def generate_cover_letter(profile, opportunity, description):
     matched_ach, matched_skills = align_profile(profile, description)
     return f"""
+===========================================================
+📄 COVER LETTER – {opportunity['Title']}
+===========================================================
+{profile['Name']}
+{profile['Email']} | {profile['Phone']}
+{profile['Location']}
+
+{datetime.now().strftime('%B %d, %Y')}
+
 Dear {opportunity['Organization']},
 
-I am applying for {opportunity['Title']} ({opportunity['Category']}).
-
+I am writing to express my strong interest in the {opportunity['Title']} position. 
 Your requirements emphasize: {description[:300]}...
 
-I bring aligned achievements:
-- {'\n- '.join(matched_ach)}
+I bring a unique combination of technical expertise and field experience that directly aligns with your needs:
 
-My technical skills in {', '.join(matched_skills)} have been honed through real-world projects.
+- {matched_ach.replace('; ', '\n- ')}
+
+My technical skills in {matched_skills} have been honed through real-world projects, including:
+{profile['Experience'][:300]}
 
 {profile['NarrativeContext']}
+
 {profile['NarrativeSolution']}
+
+I am excited about the opportunity to contribute to your team and would welcome the chance to discuss how my background can support your goals.
 
 Sincerely,
 {profile['Name']}
@@ -149,95 +431,235 @@ Sincerely,
 def generate_motivation_letter(profile, opportunity, description):
     matched_ach, matched_skills = align_profile(profile, description)
     return f"""
-Motivation Letter for {opportunity['Title']}:
+===========================================================
+💡 MOTIVATION LETTER – {opportunity['Title']}
+===========================================================
+{profile['Name']}
+{profile['Email']} | {profile['Phone']}
 
-Aligned Achievements:
-{'; '.join(matched_ach)}
+Dear Selection Committee,
 
-Aligned Skills:
-{', '.join(matched_skills)}
+I am deeply motivated to pursue the {opportunity['Title']} opportunity because it resonates with my core mission:
 
 {profile['NarrativeContext']}
+
+My key achievements align perfectly with your objectives:
+{matched_ach}
+
+My technical toolkit, including {matched_skills}, enables me to deliver impactful results.
+
 {profile['NarrativeSolution']}
+
 {profile['NarrativeCTA']}
+
+Thank you for considering my application. I look forward to the possibility of contributing to your esteemed program.
+
+Warm regards,
+{profile['Name']}
 """
 
 # ==========================================
-# MAIN UI
+# STREAMLIT UI
 # ==========================================
-st.title("🎓 Scholarship & Job AI Dashboard")
-st.markdown("Track opportunities, deadlines, and generate AI-powered applications.")
+st.title("🌍 Scholarship & Job AI Dashboard")
+st.markdown("Track opportunities, generate customized applications with AI alignment.")
 
-df = fetch_all()
+# Load data
+df = fetch_all_opportunities()
+profile_df = fetch_profile()
+profile = profile_df.iloc[0].to_dict() if not profile_df.empty else {}
 
+# === SIDEBAR: Crawl trigger ===
+with st.sidebar:
+    st.header("🔄 Data Sync")
+    if st.button("🔄 Run Crawler Now (RSS)"):
+        with st.spinner("Fetching RSS feeds..."):
+            count = fetch_rss_scholarships()
+            st.success(f"Added {count} new opportunities from RSS!")
+            st.rerun()
+    st.markdown("---")
+    st.header("📊 Quick Stats")
+    if not df.empty:
+        st.metric("Total Opportunities", len(df))
+        st.metric("Scholarships", len(df[df['category'].str.contains('Scholarship', case=False)]))
+        st.metric("Jobs", len(df[df['category'].str.contains('Job', case=False)]))
+
+# === MAIN AREA ===
 if df.empty:
-    st.info("No opportunities yet. Add one below.")
+    st.info("No opportunities yet. Add one manually, scrape from link, or run the crawler.")
 else:
-    def deadline_color(deadline):
+    # Deadline alert emoji
+    def deadline_emoji(deadline):
         try:
-            days_left = (pd.to_datetime(deadline).date() - datetime.today().date()).days
+            days = (datetime.strptime(deadline, '%Y-%m-%d').date() - datetime.now().date()).days
         except:
-            days_left = 999
-        if days_left <= 10: return "🔴"
-        elif days_left <= 30: return "🟡"
-        return "🟢"
-
-    df["deadline_alert"] = df["Deadline"].apply(deadline_color)
-
-    st.dataframe(df[["Id","Title","Organization","Deadline","deadline_alert","Status","Saved"]],
-                 use_container_width=True)
-
-    selected_id = st.selectbox("Select Opportunity ID", df["Id"].tolist())
-    if selected_id:
-        row = df[df["Id"] == selected_id].iloc[0]
-        profile_df = fetch_profile()
-        if profile_df.empty:
-            st.error("❌ MasterProfile table is empty or missing.")
+            days = 999
+        if days <= 10:
+            return "🔴"
+        elif days <= 30:
+            return "🟡"
         else:
-            profile = profile_df.iloc[0].to_dict()
-            description = st.text_area("Paste Job/Scholarship Description Here")
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if st.button("Generate CV"):
+            return "🟢"
+    df["alert"] = df["deadline"].apply(deadline_emoji)
+    
+    # Display table
+    st.dataframe(
+        df[["id", "title", "organization", "deadline", "alert", "status", "source"]],
+        use_container_width=True,
+        column_config={
+            "id": "ID",
+            "alert": "⚠️",
+            "source": "Source"
+        }
+    )
+    
+    # Select opportunity
+    selected_id = st.selectbox("Select Opportunity ID", df["id"].tolist())
+    if selected_id:
+        row = df[df["id"] == selected_id].iloc[0]
+        st.subheader(f"📌 {row['title']}")
+        st.caption(f"Organization: {row['organization']} | Deadline: {row['deadline']} | Status: {row['status']}")
+        
+        # Load saved description if any
+        saved_desc = row.get('user_description', '')
+        # Text area for job/scholarship description
+        description = st.text_area(
+            "Paste Job/Scholarship Description Here (this will be saved with the opportunity)",
+            value=saved_desc,
+            height=150
+        )
+        
+        # Save description button
+        if st.button("💾 Save Description for this Opportunity"):
+            update_opportunity(selected_id, "user_description", description)
+            st.success("Description saved!")
+            st.rerun()
+        
+        # AI Generation buttons
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("📄 Generate CV"):
+                if not profile:
+                    st.error("Master profile not found. Please check your database.")
+                else:
                     cv = generate_cv(profile, description)
-                    st.download_button("Download CV", data=cv, file_name="cv.txt")
-            with col2:
-                if st.button("Generate Cover Letter"):
+                    st.download_button("Download CV", data=cv, file_name=f"CV_{row['title'].replace(' ', '_')}.txt")
+        with col2:
+            if st.button("✉️ Generate Cover Letter"):
+                if not profile:
+                    st.error("Master profile not found.")
+                else:
                     cover = generate_cover_letter(profile, row, description)
-                    st.download_button("Download Cover Letter", data=cover, file_name="cover_letter.txt")
-            with col3:
-                if st.button("Generate Motivation Letter"):
-                    motivation = generate_motivation_letter(profile, row, description)
-                    st.download_button("Download Motivation Letter", data=motivation, file_name="motivation_letter.txt")
-
-            if st.button("Delete Opportunity"):
+                    st.download_button("Download Cover Letter", data=cover, file_name=f"Cover_{row['title'].replace(' ', '_')}.txt")
+        with col3:
+            if st.button("💪 Generate Motivation Letter"):
+                if not profile:
+                    st.error("Master profile not found.")
+                else:
+                    mot = generate_motivation_letter(profile, row, description)
+                    st.download_button("Download Motivation Letter", data=mot, file_name=f"Motivation_{row['title'].replace(' ', '_')}.txt")
+        
+        # Status update and delete
+        col4, col5 = st.columns(2)
+        with col4:
+            new_status = st.selectbox("Update Status", ["Not Applied", "In Progress", "Applied", "Saved", "Rejected", "Accepted"], 
+                                      index=["Not Applied","In Progress","Applied","Saved","Rejected","Accepted"].index(row['status']) if row['status'] in ["Not Applied","In Progress","Applied","Saved","Rejected","Accepted"] else 0)
+            if st.button("Update Status"):
+                update_opportunity(selected_id, "status", new_status)
+                st.success("Status updated!")
+                st.rerun()
+        with col5:
+            if st.button("🗑️ Delete Opportunity"):
                 delete_opportunity(selected_id)
+                st.success("Deleted!")
                 st.rerun()
 
-with st.expander("➕ Add New Opportunity"):
-    with st.form("add"):
+# === ADD NEW OPPORTUNITY (Manual) ===
+with st.expander("➕ Add New Opportunity", expanded=False):
+    with st.form("add_form"):
         col1, col2 = st.columns(2)
         with col1:
             title = st.text_input("Title")
             org = st.text_input("Organization")
+            url = st.text_input("URL (optional)")
         with col2:
-            cat = st.selectbox("Category", ["Scholarship","Job"])
-            deadline = st.date_input("Deadline", value=datetime.today().date()+timedelta(days=30))
-        if st.form_submit_button("Add"):
+            cat = st.selectbox("Category", ["Scholarship", "Job", "Fellowship", "Other"])
+            deadline = st.date_input("Deadline", value=datetime.today().date() + timedelta(days=30))
+            status = st.selectbox("Status", ["Not Applied", "In Progress", "Applied", "Saved"])
+        description_input = st.text_area("Description (optional)", height=100)
+        if st.form_submit_button("Add Opportunity"):
             if title and org:
-                data = {
-                    "title": title,
-                    "organization": org,
-                    "category": cat,
-                    "deadline": deadline,
-                    "status": "Not Applied",
-                    "created_at": datetime.now(),
-                    "saved": 0
+                opp_data = {
+                    'category': cat,
+                    'track': '',
+                    'title': title,
+                    'organization': org,
+                    'url': url or '',
+                    'days_left': (deadline - datetime.today().date()).days,
+                    'moi_accepted': 'Yes',
+                    'fully_funded': 'Yes',
+                    'ethiopia_eligible': 'Yes',
+                    'degree_required': '',
+                    'sector': '',
+                    'status': status,
+                    'raw_description': description_input[:500],
+                    'deadline': deadline.strftime('%Y-%m-%d'),
+                    'is_recurring': 0,
+                    'created_at': datetime.now().isoformat(),
+                    'updated_at': datetime.now().isoformat(),
+                    'source': 'Manual',
+                    'user_description': description_input
                 }
-                add_opportunity(data)
+                add_opportunity(opp_data)
                 st.success("Opportunity added!")
                 st.rerun()
+            else:
+                st.warning("Title and Organization are required.")
 
-with st.expander("👤 Master Profile"):
-    st.dataframe(fetch_profile())
+# === SCRAPE FROM LINK ===
+with st.expander("🌐 Add Opportunity from Link", expanded=False):
+    link = st.text_input("Paste opportunity link")
+    if st.button("Scrape and Add"):
+        if link:
+            opp = scrape_link(link)
+            if opp:
+                add_opportunity(opp)
+                st.success("Opportunity scraped and added!")
+                st.rerun()
+            else:
+                st.error("Failed to scrape link. Check the URL or try manual entry.")
+
+# === MASTER PROFILE VIEW ===
+with st.expander("👤 Master Profile", expanded=False):
+    if not profile_df.empty:
+        st.dataframe(profile_df)
+        st.caption("Edit the profile directly in the SQLite database if needed (using an external tool).")
+    else:
+        st.warning("No profile found. Please check your database.")
+
+# === GRAPHS ===
+with st.expander("📊 Graphs", expanded=False):
+    if not df.empty:
+        # Category bar chart
+        bar = alt.Chart(df).mark_bar().encode(
+            x='category',
+            y='count()',
+            color='category'
+        ).properties(title='Opportunities by Category')
+        # Deadline line chart
+        df_deadline = df.copy()
+        df_deadline['deadline_dt'] = pd.to_datetime(df_deadline['deadline'], errors='coerce')
+        df_deadline = df_deadline.dropna(subset=['deadline_dt'])
+        if not df_deadline.empty:
+            line = alt.Chart(df_deadline).mark_line(point=True).encode(
+                x='deadline_dt:T',
+                y='count()',
+                color='category'
+            ).properties(title='Deadline Distribution')
+            st.altair_chart(bar | line, use_container_width=True)
+        else:
+            st.altair_chart(bar, use_container_width=True)
+    else:
+        st.info("No data to visualize.")
+
+st.caption(f"Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Powered by SQLite, Streamlit, and AI alignment.")

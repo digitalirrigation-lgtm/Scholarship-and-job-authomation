@@ -1,7 +1,9 @@
 streamlit
 pandas
-pyodbc
-altair
-feedparser
-beautifulsoup4
-requests
+sqlite3
+transformers
+torch
+sentencepiece
+plotly
+selenium
+webdriver-manager

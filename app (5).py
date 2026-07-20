@@ -1,5 +1,5 @@
 # ============================================================
-# FINAL AI-POWERED SCHOLARSHIP & JOB APPLICATION DASHBOARD
+# FINAL AI-POWERED DASHBOARD – ALTAIR VERSION
 # ============================================================
 import streamlit as st
 import pandas as pd
@@ -7,8 +7,7 @@ import sqlite3
 import re
 from datetime import datetime, timedelta
 import os
-import plotly.express as px
-import plotly.graph_objects as go
+import altair as alt   # <- altair is already installed with Streamlit
 
 # ---------- Local AI (transformers) ----------
 try:
@@ -18,16 +17,15 @@ except ImportError:
     AI_AVAILABLE = False
 
 # ---------- Configuration ----------
-USE_LOCAL_AI = True          # Set False to disable AI and use templates
+USE_LOCAL_AI = True          # Set False to disable AI
 DB_PATH = "pipeline_vault.db"
-MODEL_NAME = "microsoft/phi-2"  # ~2.7GB, runs on CPU
+MODEL_NAME = "microsoft/phi-2"
 
 # ---------- Database with automatic schema migration ----------
 def get_db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 def ensure_table_schema():
-    """Add any missing columns to Opportunities without dropping data."""
     conn = get_db()
     c = conn.cursor()
     c.execute("PRAGMA table_info(Opportunities)")
@@ -78,7 +76,6 @@ def reset_db():
         NarrativeSolution TEXT,
         NarrativeCTA TEXT
     )''')
-    # Insert default profile (your details)
     c.execute("SELECT COUNT(*) FROM MasterProfile")
     if c.fetchone()[0] == 0:
         c.execute("""INSERT INTO MasterProfile
@@ -101,11 +98,10 @@ def reset_db():
     conn.commit()
     conn.close()
 
-# Run migration on every startup
 if not os.path.exists(DB_PATH):
     reset_db()
 else:
-    ensure_table_schema()  # add missing columns if any
+    ensure_table_schema()
 
 # ---------- Database helper functions ----------
 def fetch_all():
@@ -166,14 +162,14 @@ def extract_keywords(text):
     stopwords = {"the","and","for","with","from","into","about","without","etc","this","that","have","are"}
     return set(w for w in words if w not in stopwords)
 
-# ---------- Local AI model (lazy loading) ----------
+# ---------- Local AI model ----------
 _model = None
 _tokenizer = None
 
 def load_model():
     global _model, _tokenizer
     if _model is None and USE_LOCAL_AI and AI_AVAILABLE:
-        with st.spinner("🧠 Loading AI model (first run may take 5-10 min)... please wait."):
+        with st.spinner("🧠 Loading AI model (first run may take 5-10 min)..."):
             _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
             _model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, trust_remote_code=True)
     return _model, _tokenizer
@@ -191,7 +187,7 @@ def generate_text(prompt, max_length=512):
         generated = generated[len(prompt):].strip()
     return generated
 
-# ---------- AI-based generation (with fallback to templates) ----------
+# ---------- AI-based generation (with fallback) ----------
 def align_profile(profile, description):
     achievements = [a.strip() for a in profile['Achievements'].split(';') if a.strip()]
     skills = [s.strip() for s in profile['Skills'].split(',') if s.strip()]
@@ -202,7 +198,7 @@ def align_profile(profile, description):
 
 def generate_cv(profile, description):
     if USE_LOCAL_AI and AI_AVAILABLE:
-        prompt = f"""You are an expert CV writer. Based on the profile below and the job description, write a professional CV in plain text (no markdown). Use clear sections: Contact, Education, Experience, Achievements, Skills, Certifications. Tailor it to the job.
+        prompt = f"""Write a concise CV in plain text with sections: Contact, Education, Experience, Achievements, Skills, Certifications. Tailor it to the job.
 
 Profile:
 Name: {profile['Name']}
@@ -221,7 +217,6 @@ CV:"""
         result = generate_text(prompt, max_length=500)
         if result:
             return result
-    # Fallback template (smart keyword alignment)
     matched_ach, matched_skills = align_profile(profile, description)
     return f"""Name: {profile['Name']}
 Email: {profile['Email']}
@@ -234,10 +229,10 @@ Education:
 Experience:
 {profile['Experience']}
 
-Achievements (aligned to opportunity):
+Achievements (aligned):
 {'; '.join(matched_ach)}
 
-Skills (aligned to opportunity):
+Skills (aligned):
 {', '.join(matched_skills)}
 
 Certifications:
@@ -245,42 +240,33 @@ Certifications:
 
 def generate_cover_letter(profile, description):
     if USE_LOCAL_AI and AI_AVAILABLE:
-        prompt = f"""Write a compelling cover letter (3 paragraphs) for the following opportunity. The applicant is {profile['Name']}. Use the job description to highlight relevant achievements and skills.
-
-Profile: {profile['Name']}, {profile['Education']}
+        prompt = f"""Write a cover letter (3 paragraphs) for this job/scholarship. Applicant: {profile['Name']}, {profile['Education']}.
 Experience: {profile['Experience']}
 Achievements: {profile['Achievements']}
 Skills: {profile['Skills']}
-
-Job Description: {description}
-
+Description: {description}
 Cover Letter:"""
         result = generate_text(prompt, max_length=600)
         if result:
             return result
     return f"""Dear Hiring Committee,
 
-I am writing to apply for the position described. My name is {profile['Name']}, and I hold a {profile['Education']}. With a strong background in {profile['Experience']}, I am confident I can contribute effectively to your team.
+I am writing to apply for the position described. My name is {profile['Name']}, and I hold a {profile['Education']}. With a background in {profile['Experience']}, I am confident I can contribute effectively.
 
-My key achievements include {profile['Achievements']}, and my skills in {profile['Skills']} are directly aligned with the requirements of this role.
+My achievements include {profile['Achievements']}, and my skills in {profile['Skills']} are directly relevant.
 
-Thank you for considering my application. I look forward to the opportunity to discuss how I can contribute to your organization.
+Thank you for your consideration.
 
 Sincerely,
 {profile['Name']}"""
 
 def generate_motivation_letter(profile, description):
     if USE_LOCAL_AI and AI_AVAILABLE:
-        prompt = f"""Write a motivation letter for a scholarship/fellowship program. The applicant is {profile['Name']} from Ethiopia, with a mission to use GeoAI for water resource management. Explain why they are a perfect fit and how they will contribute.
-
-Profile: {profile['Name']}, {profile['Education']}
-Narrative Context: {profile['NarrativeContext']}
-Narrative Solution: {profile['NarrativeSolution']}
+        prompt = f"""Write a motivation letter for a scholarship/fellowship. Applicant: {profile['Name']} from Ethiopia, background in water engineering and GeoAI.
+Narrative: {profile['NarrativeContext']}
 Achievements: {profile['Achievements']}
 Skills: {profile['Skills']}
-
 Program Description: {description}
-
 Motivation Letter:"""
         result = generate_text(prompt, max_length=700)
         if result:
@@ -289,14 +275,14 @@ Motivation Letter:"""
 
 My name is {profile['Name']} from Ethiopia. My journey in water resource engineering and GeoAI has been driven by a desire to solve real-world problems. {profile['NarrativeContext']}
 
-I have developed {profile['Achievements']} and possess strong skills in {profile['Skills']}. This opportunity would allow me to further my mission of {profile['NarrativeSolution']} while contributing to your program's goals.
+I have developed {profile['Achievements']} and possess skills in {profile['Skills']}. This opportunity would allow me to further my mission of {profile['NarrativeSolution']}.
 
-I am excited about the possibility of joining your community and look forward to the chance to learn and grow.
+I look forward to contributing to your program.
 
 Sincerely,
 {profile['Name']}"""
 
-# ---------- Selenium helper (optional) ----------
+# ---------- Selenium helper ----------
 def open_browser(link):
     try:
         from selenium import webdriver
@@ -307,16 +293,16 @@ def open_browser(link):
         options.add_argument("--start-maximized")
         driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
         driver.get(link)
-        st.success("🌐 Browser opened. Complete the application manually.")
+        st.success("🌐 Browser opened.")
         return driver
     except Exception as e:
-        st.error(f"Browser error: {e}. Please open the link manually.")
+        st.error(f"Browser error: {e}")
         return None
 
 # ---------- Streamlit UI ----------
-st.set_page_config(layout="wide", page_title="🎓 AI Application Dashboard", page_icon="🎓")
+st.set_page_config(layout="wide", page_title="🎓 AI Dashboard")
 
-# --- Sidebar: Deadline Monitor ---
+# Sidebar
 st.sidebar.title("📅 Deadline Monitor")
 df_all = fetch_all()
 if not df_all.empty:
@@ -326,7 +312,6 @@ if not df_all.empty:
     urgent = df_all[df_all['DaysLeft'] <= 10]
     upcoming = df_all[(df_all['DaysLeft'] > 10) & (df_all['DaysLeft'] <= 30)]
     safe = df_all[df_all['DaysLeft'] > 30]
-
     st.sidebar.markdown("### 🔴 Urgent (≤10 days)")
     for _, row in urgent.iterrows():
         st.sidebar.write(f"• {row['Title']} ({row['DaysLeft']} days left)")
@@ -337,12 +322,12 @@ if not df_all.empty:
     for _, row in safe.iterrows():
         st.sidebar.write(f"• {row['Title']} ({row['DaysLeft']} days left)")
 else:
-    st.sidebar.info("No opportunities yet.")
+    st.sidebar.info("No opportunities.")
 
-# --- Main Dashboard ---
-st.title("🎓 Scholarship & Job AI Application Dashboard")
+# Main
+st.title("🎓 Scholarship & Job AI Dashboard")
 
-# ------------------- METRICS ROW -------------------
+# Metrics
 col1, col2, col3, col4 = st.columns(4)
 df = fetch_all()
 if not df.empty:
@@ -360,37 +345,38 @@ else:
     col3.metric("⏳ Pending", 0)
     col4.metric("🔴 Urgent", 0)
 
-# ------------------- CHARTS -------------------
+# Charts using Altair
 if not df.empty:
-    # Deadline urgency bar chart
     today = pd.Timestamp.today().normalize()
     df['DeadlineDate'] = pd.to_datetime(df['Deadline']).dt.normalize()
     df['Urgency'] = df['DeadlineDate'].apply(lambda x: 'Urgent' if (x - today).days <= 10 else ('Upcoming' if (x - today).days <= 30 else 'Safe'))
     urgency_counts = df['Urgency'].value_counts().reset_index()
     urgency_counts.columns = ['Urgency', 'Count']
-    fig_bar = px.bar(urgency_counts, x='Urgency', y='Count', color='Urgency',
-                     color_discrete_map={'Urgent':'red','Upcoming':'orange','Safe':'green'},
-                     title='Opportunities by Deadline Urgency')
-    st.plotly_chart(fig_bar, use_container_width=True)
+    bar_chart = alt.Chart(urgency_counts).mark_bar().encode(
+        x='Urgency',
+        y='Count',
+        color=alt.Color('Urgency', scale=alt.Scale(domain=['Urgent','Upcoming','Safe'], range=['red','orange','green']))
+    ).properties(title='Opportunities by Deadline Urgency')
+    st.altair_chart(bar_chart, use_container_width=True)
 
-    # Applications over time (if any AppliedDate)
     applied_df = df[df['Status'] == 'Applied'].copy()
     if not applied_df.empty:
         applied_df['AppliedDate'] = pd.to_datetime(applied_df['AppliedDate'])
         daily_apps = applied_df.groupby(applied_df['AppliedDate'].dt.date).size().reset_index(name='count')
         daily_apps.columns = ['Date', 'Applications']
-        fig_line = px.line(daily_apps, x='Date', y='Applications', title='Applications Submitted Over Time',
-                           markers=True)
-        st.plotly_chart(fig_line, use_container_width=True)
+        line_chart = alt.Chart(daily_apps).mark_line(point=True).encode(
+            x='Date:T',
+            y='Applications:Q'
+        ).properties(title='Applications Submitted Over Time')
+        st.altair_chart(line_chart, use_container_width=True)
     else:
-        st.info("No applications submitted yet. Start applying!")
+        st.info("No applications submitted yet.")
 
-# ------------------- OPPORTUNITIES TABLE -------------------
+# Table
 st.subheader("📋 All Opportunities")
 if df.empty:
     st.info("No opportunities yet. Add one below.")
 else:
-    # Add color column for deadline
     def deadline_color(deadline):
         try:
             days = (pd.to_datetime(deadline).date() - datetime.today().date()).days
@@ -403,90 +389,77 @@ else:
     display_cols = ["Id", "Title", "Organization", "Deadline", "Deadline Alert", "Status", "Saved"]
     st.dataframe(df[display_cols], use_container_width=True)
 
-    # Select opportunity for detailed actions
-    selected_id = st.selectbox("Select Opportunity ID for detailed actions", df["Id"].tolist())
+    selected_id = st.selectbox("Select Opportunity ID", df["Id"].tolist())
     if selected_id:
         row = df[df["Id"] == selected_id].iloc[0]
         profile_df = fetch_profile()
         if profile_df.empty:
-            st.error("MasterProfile is empty. Please add your profile data.")
+            st.error("Profile empty.")
         else:
             profile = profile_df.iloc[0].to_dict()
             with st.expander(f"📄 {row['Title']} – {row['Organization']}", expanded=True):
                 st.write(f"**Deadline:** {row['Deadline']} {deadline_color(row['Deadline'])}")
                 st.write(f"**Status:** {row['Status']}")
                 st.write(f"**Link:** {row['Link']}")
-                st.write("**Job Description:**")
-                description = st.text_area("Paste full job description here (AI will use it to tailor docs)",
-                                           value=row["UserDescription"] or "", height=200)
+                description = st.text_area("Paste job description", value=row["UserDescription"] or "", height=150)
 
-                # Action buttons
                 col_gen, col_status, col_del, col_browser = st.columns(4)
                 with col_gen:
-                    if st.button("⚡ Generate Documents (AI)", key="gen_docs"):
-                        with st.spinner("🤖 AI is writing your tailored documents..."):
+                    if st.button("⚡ Generate Documents (AI)"):
+                        with st.spinner("Generating..."):
                             cv = generate_cv(profile, description)
                             cl = generate_cover_letter(profile, description)
                             ml = generate_motivation_letter(profile, description)
                             update_generated_docs(selected_id, cv, cl, ml)
-                            st.success("✅ Documents generated and saved!")
+                            st.success("✅ Generated and saved!")
                             st.rerun()
                 with col_status:
-                    if st.button("✅ Mark as Applied", key="mark_applied"):
+                    if st.button("✅ Mark as Applied"):
                         update_status(selected_id, "Applied")
                         st.rerun()
                 with col_del:
-                    if st.button("🗑️ Delete", key="del_opp"):
+                    if st.button("🗑️ Delete"):
                         delete_opportunity(selected_id)
                         st.rerun()
                 with col_browser:
-                    if st.button("🌐 Open Link", key="open_link"):
+                    if st.button("🌐 Open Link"):
                         if row['Link'] and row['Link'].startswith("http"):
                             open_browser(row['Link'])
                         else:
-                            st.warning("No valid link provided.")
+                            st.warning("No link")
 
-                # Display generated documents if any
                 if row['GeneratedCV']:
-                    st.subheader("📄 Generated CV")
+                    st.subheader("📄 CV")
                     st.text_area("CV", row['GeneratedCV'], height=200)
-                    st.download_button("⬇️ Download CV", data=row['GeneratedCV'], file_name=f"CV_{row['Title']}.txt", key="dl_cv")
+                    st.download_button("⬇️ Download CV", data=row['GeneratedCV'], file_name=f"CV_{row['Title']}.txt")
                 if row['GeneratedCL']:
                     st.subheader("✉️ Cover Letter")
                     st.text_area("Cover Letter", row['GeneratedCL'], height=200)
-                    st.download_button("⬇️ Download Cover Letter", data=row['GeneratedCL'], file_name=f"CL_{row['Title']}.txt", key="dl_cl")
+                    st.download_button("⬇️ Download Cover Letter", data=row['GeneratedCL'], file_name=f"CL_{row['Title']}.txt")
                 if row['GeneratedML']:
                     st.subheader("📨 Motivation Letter")
                     st.text_area("Motivation Letter", row['GeneratedML'], height=200)
-                    st.download_button("⬇️ Download Motivation Letter", data=row['GeneratedML'], file_name=f"ML_{row['Title']}.txt", key="dl_ml")
+                    st.download_button("⬇️ Download Motivation Letter", data=row['GeneratedML'], file_name=f"ML_{row['Title']}.txt")
 
-# ------------------- ADD NEW OPPORTUNITY -------------------
-with st.expander("➕ Add New Opportunity", expanded=False):
+# Add new
+with st.expander("➕ Add New Opportunity"):
     with st.form("add_form"):
         title = st.text_input("Title *")
         org = st.text_input("Organization *")
-        cat = st.selectbox("Category", ["Scholarship", "Job", "Fellowship", "Other"])
+        cat = st.selectbox("Category", ["Scholarship", "Job"])
         deadline = st.date_input("Deadline", value=datetime.today().date() + timedelta(days=30))
         link = st.text_input("Link (optional)")
-        description_input = st.text_area("Description (paste full details here)", height=150)
-        submitted = st.form_submit_button("Add Opportunity")
-        if submitted:
+        desc = st.text_area("Description", height=100)
+        if st.form_submit_button("Add Opportunity"):
             if title and org:
-                data = {
-                    "title": title,
-                    "organization": org,
-                    "category": cat,
-                    "deadline": deadline,
-                    "status": "Not Applied",
-                    "description": description_input,
-                    "link": link
-                }
-                add_opportunity(data)
-                st.success("✅ Opportunity added! Scroll up to see it.")
+                add_opportunity({
+                    "title": title, "organization": org, "category": cat,
+                    "deadline": deadline, "status": "Not Applied",
+                    "description": desc, "link": link
+                })
+                st.success("✅ Added!")
                 st.rerun()
             else:
-                st.warning("Title and Organization are required.")
+                st.warning("Title and Organization required.")
 
-# ------------------- FOOTER -------------------
-st.markdown("---")
-st.caption("⚡ Powered by local AI (Phi-2) | All data stored locally in SQLite | Dashboard updates in real time")
+st.caption("⚡ Powered by local AI (Phi-2) | Altair for charts")

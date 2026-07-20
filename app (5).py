@@ -1,5 +1,5 @@
 # ============================================================
-# FINAL AI-POWERED JOB/SCHOLARSHIP DASHBOARD
+# ULTIMATE AI DASHBOARD – SKY/SILVER THEME • DARK TEXT
 # ============================================================
 import streamlit as st
 import pandas as pd
@@ -11,7 +11,7 @@ import altair as alt
 import requests
 from bs4 import BeautifulSoup
 
-# ---------- Local AI (transformers) ----------
+# ---------- Local AI ----------
 try:
     from transformers import AutoModelForCausalLM, AutoTokenizer
     AI_AVAILABLE = True
@@ -19,11 +19,11 @@ except ImportError:
     AI_AVAILABLE = False
 
 # ---------- CONFIGURATION ----------
-USE_LOCAL_AI = True          # Set False to skip AI download (uses templates)
+USE_LOCAL_AI = True          # Set False to use templates (no AI download)
 DB_PATH = "pipeline_vault.db"
 MODEL_NAME = "microsoft/phi-2"
 
-# ---------- DATABASE (with auto-migration) ----------
+# ---------- DATABASE (SQLite – all data saved here) ----------
 def get_db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
@@ -37,7 +37,7 @@ def ensure_table_schema():
         "GeneratedCL": "TEXT",
         "GeneratedML": "TEXT",
         "AppliedTimestamp": "TEXT",
-        "LastNotificationCheck": "TEXT"  # for 5-hour reminder
+        "LastNotificationCheck": "TEXT"
     }
     for col, typ in needed.items():
         if col not in existing:
@@ -107,7 +107,7 @@ if not os.path.exists(DB_PATH):
 else:
     ensure_table_schema()
 
-# ---------- DATABASE HELPERS ----------
+# ---------- DB HELPERS ----------
 def fetch_all():
     conn = get_db()
     df = pd.read_sql("SELECT * FROM Opportunities ORDER BY Id DESC", conn)
@@ -168,27 +168,24 @@ def update_notification_check(opp_id):
     conn.commit()
     conn.close()
 
-# ---------- TEXT EXTRACTION FROM URL ----------
+# ---------- URL FETCH ----------
 def extract_description_from_url(url):
     try:
         headers = {'User-Agent': 'Mozilla/5.0'}
         response = requests.get(url, headers=headers, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
-        # Remove script and style tags
         for script in soup(["script", "style"]):
             script.decompose()
         text = soup.get_text(separator='\n')
         lines = [line.strip() for line in text.splitlines() if line.strip()]
-        # Try to find the job description section – we'll just return the first 2000 chars
         full_text = '\n'.join(lines)
-        # If too long, truncate
         if len(full_text) > 3000:
             full_text = full_text[:3000] + "..."
         return full_text
     except Exception as e:
-        return f"Error fetching description: {e}"
+        return f"Error: {e}"
 
-# ---------- KEYWORD EXTRACTION ----------
+# ---------- KEYWORDS ----------
 def extract_keywords(text):
     words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
     stopwords = {"the","and","for","with","from","into","about","without","etc","this","that","have","are"}
@@ -201,7 +198,7 @@ _tokenizer = None
 def load_model():
     global _model, _tokenizer
     if _model is None and USE_LOCAL_AI and AI_AVAILABLE:
-        with st.spinner("🧠 Loading AI model (first run may take 5-10 min)..."):
+        with st.spinner("🧠 Loading AI (first run 5-10 min)..."):
             _tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True)
             _model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, trust_remote_code=True)
     return _model, _tokenizer
@@ -219,7 +216,6 @@ def generate_text(prompt, max_length=512):
         generated = generated[len(prompt):].strip()
     return generated
 
-# ---------- AI GENERATION (with fallback) ----------
 def align_profile(profile, description):
     achievements = [a.strip() for a in profile['Achievements'].split(';') if a.strip()]
     skills = [s.strip() for s in profile['Skills'].split(',') if s.strip()]
@@ -230,7 +226,7 @@ def align_profile(profile, description):
 
 def generate_cv(profile, description):
     if USE_LOCAL_AI and AI_AVAILABLE:
-        prompt = f"""Write a concise CV in plain text with sections: Contact, Education, Experience, Achievements, Skills, Certifications. Tailor it to the job.
+        prompt = f"""Write a concise CV (plain text) with sections: Contact, Education, Experience, Achievements, Skills, Certifications. Tailor to the job.
 
 Profile:
 Name: {profile['Name']}
@@ -314,7 +310,6 @@ I look forward to contributing to your program.
 Sincerely,
 {profile['Name']}"""
 
-# ---------- BROWSER HELPER ----------
 def open_browser(link):
     try:
         from selenium import webdriver
@@ -331,12 +326,11 @@ def open_browser(link):
         st.error(f"Browser error: {e}")
         return None
 
-# ---------- NOTIFICATION SYSTEM ----------
+# ---------- NOTIFICATIONS ----------
 def check_notifications(df):
     today = datetime.today().date()
     urgent = df[pd.to_datetime(df['Deadline']).dt.date <= today + timedelta(days=10)]
     within_24h = df[pd.to_datetime(df['Deadline']).dt.date <= today + timedelta(days=1)]
-    # Check last notification time (using first row's LastNotificationCheck)
     if not df.empty and 'LastNotificationCheck' in df.columns:
         last_check_str = df.iloc[0]['LastNotificationCheck']
         if last_check_str:
@@ -346,104 +340,109 @@ def check_notifications(df):
             hours_since = 999
     else:
         hours_since = 999
-
-    messages = []
+    msgs = []
     if not urgent.empty:
-        messages.append(f"🔴 {len(urgent)} urgent deadline(s) within 10 days!")
+        msgs.append(f"🔴 {len(urgent)} urgent deadline(s) within 10 days!")
     if not within_24h.empty:
-        messages.append(f"⚠️ {len(within_24h)} deadline(s) within 24 hours!")
+        msgs.append(f"⚠️ {len(within_24h)} deadline(s) within 24 hours!")
     if hours_since > 5:
-        messages.append(f"⏰ Last notification check was {int(hours_since)} hours ago. Please review urgent deadlines.")
-    return messages
+        msgs.append(f"⏰ Last check was {int(hours_since)} hours ago. Review urgent deadlines.")
+    return msgs
 
 # ---------- STREAMLIT UI ----------
 st.set_page_config(layout="wide", page_title="🎓 AI Dashboard", page_icon="🎓")
 
-# ---- DARK THEME WITH GOLDEN ACCENTS ----
+# ---- SKY/SILVER THEME WITH DARK TEXT ----
 st.markdown("""
 <style>
-    /* Dark background, light text */
+    /* Sky/silver gradient background */
     .stApp {
-        background-color: #0e1117;
-        color: #f0f2f6;
+        background: linear-gradient(145deg, #d4e6f1 0%, #f0f0f0 50%, #e8e8e8 100%);
+        color: #1a1a2e;
     }
-    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp p, .stApp label, .stApp .stMarkdown {
-        color: #f0f2f6 !important;
+    /* All text dark */
+    .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp p, .stApp label, .stApp .stMarkdown, .stApp div {
+        color: #1a1a2e !important;
     }
     .golden-text {
-        color: #FFD700;
-        text-shadow: 0 0 10px rgba(255, 215, 0, 0.3);
+        color: #b8860b;
+        text-shadow: 0 0 8px rgba(184, 134, 11, 0.3);
     }
+    /* Buttons – golden with dark text */
     .stButton button {
         background: linear-gradient(145deg, #FFD700, #B8860B) !important;
-        color: #0e1117 !important;
+        color: #1a1a2e !important;
         border-radius: 30px !important;
         border: none !important;
         font-weight: bold !important;
-        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3) !important;
+        box-shadow: 0 4px 15px rgba(184, 134, 11, 0.3) !important;
     }
     .stButton button:hover {
         transform: scale(1.05);
-        box-shadow: 0 6px 25px rgba(255, 215, 0, 0.5) !important;
+        box-shadow: 0 6px 25px rgba(184, 134, 11, 0.5) !important;
     }
-    .css-1y4p8pa { /* metrics */
-        background: rgba(255,255,255,0.05) !important;
+    /* Metrics cards – glass effect */
+    .css-1y4p8pa {
+        background: rgba(255,255,255,0.6) !important;
+        backdrop-filter: blur(4px);
         border-radius: 15px !important;
         padding: 15px !important;
-        border: 1px solid #FFD700 !important;
+        border: 1px solid #b8860b !important;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.05);
     }
     .dataframe {
-        border: 1px solid #FFD700 !important;
+        border: 1px solid #b8860b !important;
         border-radius: 10px !important;
-        background: #1e1e2a !important;
+        background: rgba(255,255,255,0.7) !important;
     }
     .dataframe th {
-        background: #2a2a3a !important;
-        color: #FFD700 !important;
+        background: #b8860b !important;
+        color: white !important;
     }
     .dataframe td {
-        color: #f0f2f6 !important;
+        color: #1a1a2e !important;
     }
     .streamlit-expanderHeader {
-        background: rgba(255, 215, 0, 0.1) !important;
-        border-left: 4px solid #FFD700 !important;
-        color: #FFD700 !important;
+        background: rgba(184, 134, 11, 0.1) !important;
+        border-left: 4px solid #b8860b !important;
+        color: #1a1a2e !important;
     }
     .stAlert {
-        background-color: rgba(255, 215, 0, 0.1) !important;
-        color: #FFD700 !important;
-        border: 1px solid #FFD700 !important;
+        background-color: rgba(184, 134, 11, 0.1) !important;
+        color: #1a1a2e !important;
+        border: 1px solid #b8860b !important;
     }
-    /* Scrollbar */
+    /* Sidebar */
+    .css-1d391kg {
+        background: rgba(255,255,255,0.3) !important;
+        backdrop-filter: blur(4px);
+    }
     ::-webkit-scrollbar { width: 8px; }
-    ::-webkit-scrollbar-track { background: #1e1e2a; }
-    ::-webkit-scrollbar-thumb { background: #FFD700; border-radius: 4px; }
+    ::-webkit-scrollbar-track { background: #d4e6f1; }
+    ::-webkit-scrollbar-thumb { background: #b8860b; border-radius: 4px; }
 </style>
 """, unsafe_allow_html=True)
 
 st.title("🎓 Scholarship & Job AI Dashboard")
-st.markdown("<p class='golden-text' style='font-size:1.2rem;'>Dark Theme • Golden Edition • Powered by Your Own Local AI</p>", unsafe_allow_html=True)
+st.markdown("<p class='golden-text' style='font-size:1.2rem;'>Sky/Silver Theme • Dark Text • Powered by Your Local AI</p>", unsafe_allow_html=True)
 
-# ---- SIDEBAR: NOTIFICATIONS + DEADLINE MONITOR ----
+# ---- SIDEBAR ----
 st.sidebar.title("📅 Dashboard")
 df_all = fetch_all()
 
-# Notification Button
+# Notification button
 if st.sidebar.button("🔔 Check Notifications"):
     if not df_all.empty:
         msgs = check_notifications(df_all)
         if msgs:
             for msg in msgs:
                 st.sidebar.warning(msg)
-            # Update the last check time for the first opportunity (or create a global setting)
-            if not df_all.empty:
-                update_notification_check(df_all.iloc[0]['Id'])
+            update_notification_check(df_all.iloc[0]['Id'])
         else:
             st.sidebar.success("✅ All deadlines are under control!")
     else:
-        st.sidebar.info("No opportunities to check.")
+        st.sidebar.info("No opportunities.")
 
-# Deadline monitor
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 📅 Deadline Summary")
 if not df_all.empty:
@@ -468,7 +467,7 @@ else:
 # ---- MAIN CONTENT ----
 df = fetch_all()
 
-# Metrics row
+# Metrics
 col1, col2, col3, col4 = st.columns(4)
 if not df.empty:
     total = len(df)
@@ -485,7 +484,7 @@ else:
     col3.metric("⏳ Pending", 0)
     col4.metric("🔴 Urgent", 0)
 
-# ---- COMBINED CHART (Bar + Line) using Altair ----
+# ---- COMBINED CHART (Bar + Line) ----
 st.subheader("📈 Application Progress (Daily Bars + Cumulative Line)")
 if not df.empty:
     applied_df = df[df['Status'] == 'Applied'].copy()
@@ -496,50 +495,36 @@ if not df.empty:
         daily = daily.sort_values('Date')
         daily['Cumulative'] = daily['Daily'].cumsum()
 
-        # Create a layered chart with dual axis
         base = alt.Chart(daily).encode(x='Date:T')
-
-        # Bar for daily
-        bar = base.mark_bar(color='gold', opacity=0.7).encode(
-            y=alt.Y('Daily:Q', axis=alt.Axis(title='Daily Applications', titleColor='gold', labelColor='gold'))
+        bar = base.mark_bar(color='#b8860b', opacity=0.7).encode(
+            y=alt.Y('Daily:Q', axis=alt.Axis(title='Daily Applications', titleColor='#1a1a2e', labelColor='#1a1a2e'))
         )
-
-        # Line for cumulative
-        line = base.mark_line(point=True, color='silver', strokeWidth=3).encode(
-            y=alt.Y('Cumulative:Q', axis=alt.Axis(title='Cumulative Total', titleColor='silver', labelColor='silver'))
+        line = base.mark_line(point=True, color='#2c3e50', strokeWidth=3).encode(
+            y=alt.Y('Cumulative:Q', axis=alt.Axis(title='Cumulative Total', titleColor='#1a1a2e', labelColor='#1a1a2e'))
         )
-
-        # Combine both with independent y-axes
-        combined = alt.layer(bar, line).resolve_scale(
-            y='independent'
-        ).properties(
-            height=350,
-            title='Daily Applications (bars) & Cumulative Total (line)'
-        )
-
+        combined = alt.layer(bar, line).resolve_scale(y='independent').properties(height=350)
         st.altair_chart(combined, use_container_width=True)
 
         # Hour analysis
-        st.subheader("⏰ Applications by Hour (Your Most Productive Times)")
+        st.subheader("⏰ Applications by Hour")
         applied_df['Hour'] = applied_df['AppliedTS'].dt.hour
         hour_counts = applied_df['Hour'].value_counts().sort_index().reset_index()
         hour_counts.columns = ['Hour', 'Count']
-        hour_chart = alt.Chart(hour_counts).mark_bar(color='gold', opacity=0.8).encode(
-            x=alt.X('Hour:O', title='Hour of Day (0-23)'),
-            y=alt.Y('Count:Q', title='Number of Applications')
+        hour_chart = alt.Chart(hour_counts).mark_bar(color='#b8860b', opacity=0.8).encode(
+            x=alt.X('Hour:O', title='Hour of Day'),
+            y=alt.Y('Count:Q', title='Applications')
         ).properties(height=300)
         st.altair_chart(hour_chart, use_container_width=True)
     else:
-        st.info("No applications submitted yet. Start applying to see progress!")
+        st.info("No applications submitted yet.")
 else:
-    st.info("Add your first opportunity to begin tracking.")
+    st.info("Add your first opportunity.")
 
-# ---- OPPORTUNITIES TABLE ----
+# ---- TABLE ----
 st.subheader("📋 All Opportunities")
 if df.empty:
     st.info("No opportunities yet. Add one below.")
 else:
-    # Color coding for deadlines
     def deadline_color(deadline):
         try:
             days = (pd.to_datetime(deadline).date() - datetime.today().date()).days
@@ -552,13 +537,12 @@ else:
     display_cols = ["Id", "Title", "Organization", "Deadline", "Deadline Alert", "Status", "Saved"]
     st.dataframe(df[display_cols], use_container_width=True)
 
-    # ---- DETAILED ACTIONS FOR SELECTED OPPORTUNITY ----
     selected_id = st.selectbox("Select Opportunity ID", df["Id"].tolist())
     if selected_id:
         row = df[df["Id"] == selected_id].iloc[0]
         profile_df = fetch_profile()
         if profile_df.empty:
-            st.error("MasterProfile is empty. Please add your profile data.")
+            st.error("Profile empty.")
         else:
             profile = profile_df.iloc[0].to_dict()
             with st.expander(f"📄 {row['Title']} – {row['Organization']}", expanded=True):
@@ -566,11 +550,14 @@ else:
                 st.write(f"**Status:** {row['Status']}")
                 st.write(f"**Link:** {row['Link']}")
 
-                # Description input with fetch from URL
+                # Description with fetch
+                if 'desc_input' not in st.session_state:
+                    st.session_state['desc_input'] = row["UserDescription"] or ""
                 description = st.text_area(
-                    "Paste job description (or enter URL and click Fetch)",
-                    value=row["UserDescription"] or "",
-                    height=150
+                    "Job Description (paste or edit)",
+                    value=st.session_state['desc_input'],
+                    height=150,
+                    key="desc_editor"
                 )
 
                 col1, col2 = st.columns(2)
@@ -579,36 +566,22 @@ else:
                         if row['Link'] and row['Link'].startswith("http"):
                             fetched = extract_description_from_url(row['Link'])
                             if fetched and not fetched.startswith("Error"):
-                                # Update the description in the session and database
-                                # We'll just set the text area value using session state
-                                # Use st.session_state to update
                                 st.session_state['desc_input'] = fetched
                                 st.rerun()
                             else:
                                 st.warning(f"Could not fetch: {fetched}")
                         else:
-                            st.warning("Please provide a valid URL in the Link field above.")
-                # Use session state to store description value
-                if 'desc_input' not in st.session_state:
-                    st.session_state['desc_input'] = description
-                # Let the text area use the session state
-                description = st.text_area(
-                    "Job Description (editable)",
-                    value=st.session_state.get('desc_input', row["UserDescription"] or ""),
-                    height=150,
-                    key="desc_editor"
-                )
+                            st.warning("Provide a valid URL in the Link field.")
 
-                # Action buttons
                 col_gen, col_status, col_del, col_browser = st.columns(4)
                 with col_gen:
                     if st.button("⚡ Generate Documents (AI)"):
-                        with st.spinner("🤖 AI is writing your tailored documents..."):
+                        with st.spinner("Generating..."):
                             cv = generate_cv(profile, description)
                             cl = generate_cover_letter(profile, description)
                             ml = generate_motivation_letter(profile, description)
                             update_generated_docs(selected_id, cv, cl, ml)
-                            st.success("✅ Documents generated and saved!")
+                            st.success("✅ Generated and saved!")
                             st.rerun()
                 with col_status:
                     if st.button("✅ Mark as Applied"):
@@ -623,48 +596,41 @@ else:
                         if row['Link'] and row['Link'].startswith("http"):
                             open_browser(row['Link'])
                         else:
-                            st.warning("No valid link provided.")
+                            st.warning("No link")
 
-                # Show generated documents
                 if row['GeneratedCV']:
-                    st.subheader("📄 Generated CV")
+                    st.subheader("📄 CV")
                     st.text_area("CV", row['GeneratedCV'], height=200)
-                    st.download_button("⬇️ Download CV", data=row['GeneratedCV'], file_name=f"CV_{row['Title']}.txt", key="dl_cv")
+                    st.download_button("⬇️ Download CV", data=row['GeneratedCV'], file_name=f"CV_{row['Title']}.txt")
                 if row['GeneratedCL']:
                     st.subheader("✉️ Cover Letter")
                     st.text_area("Cover Letter", row['GeneratedCL'], height=200)
-                    st.download_button("⬇️ Download Cover Letter", data=row['GeneratedCL'], file_name=f"CL_{row['Title']}.txt", key="dl_cl")
+                    st.download_button("⬇️ Download Cover Letter", data=row['GeneratedCL'], file_name=f"CL_{row['Title']}.txt")
                 if row['GeneratedML']:
                     st.subheader("📨 Motivation Letter")
                     st.text_area("Motivation Letter", row['GeneratedML'], height=200)
-                    st.download_button("⬇️ Download Motivation Letter", data=row['GeneratedML'], file_name=f"ML_{row['Title']}.txt", key="dl_ml")
+                    st.download_button("⬇️ Download Motivation Letter", data=row['GeneratedML'], file_name=f"ML_{row['Title']}.txt")
 
-# ---- ADD NEW OPPORTUNITY ----
+# ---- ADD NEW ----
 with st.expander("➕ Add New Opportunity", expanded=False):
     with st.form("add_form"):
         title = st.text_input("Title *")
         org = st.text_input("Organization *")
-        cat = st.selectbox("Category", ["Scholarship", "Job", "Fellowship", "Other"])
+        cat = st.selectbox("Category", ["Scholarship", "Job", "Fellowship"])
         deadline = st.date_input("Deadline", value=datetime.today().date() + timedelta(days=30))
-        link = st.text_input("Link (optional) – paste URL to fetch description later")
-        description_input = st.text_area("Description (paste full details here)", height=150)
-        submitted = st.form_submit_button("Add Opportunity")
-        if submitted:
+        link = st.text_input("Link (optional)")
+        desc = st.text_area("Description", height=100)
+        if st.form_submit_button("Add Opportunity"):
             if title and org:
-                data = {
-                    "title": title,
-                    "organization": org,
-                    "category": cat,
-                    "deadline": deadline,
-                    "status": "Not Applied",
-                    "description": description_input,
-                    "link": link
-                }
-                add_opportunity(data)
-                st.success("✅ Opportunity added! Scroll up to see it.")
+                add_opportunity({
+                    "title": title, "organization": org, "category": cat,
+                    "deadline": deadline, "status": "Not Applied",
+                    "description": desc, "link": link
+                })
+                st.success("✅ Added!")
                 st.rerun()
             else:
-                st.warning("Title and Organization are required.")
+                st.warning("Title and Organization required.")
 
 st.markdown("---")
-st.caption("⚡ Powered by local AI (Phi-2) | Data stored in SQLite | Dark Golden Theme")
+st.caption("⚡ Data stored in SQLite (pipeline_vault.db) | All AI runs locally | Sky/Silver Theme")

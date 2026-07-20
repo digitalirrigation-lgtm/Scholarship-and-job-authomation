@@ -1,6 +1,7 @@
 streamlit
 pandas
-requests
-beautifulsoup4
-feedparser
+pyodbc
 altair
+feedparser
+beautifulsoup4
+requests

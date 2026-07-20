@@ -1,5 +1,5 @@
 # ============================================================
-# ULTIMATE AI-POWERED DASHBOARD – ALTAIR CHARTS (NO PLOTLY)
+# FINAL AI-POWERED DASHBOARD – ALTAIR VERSION (NO PLOTLY)
 # ============================================================
 import streamlit as st
 import pandas as pd
@@ -7,7 +7,7 @@ import sqlite3
 import re
 from datetime import datetime, timedelta
 import os
-import altair as alt   # altair is already installed with Streamlit!
+import altair as alt  # altair is already installed with Streamlit
 
 # ---------- Local AI ----------
 try:
@@ -21,7 +21,7 @@ USE_LOCAL_AI = True          # Set False to skip AI download
 DB_PATH = "pipeline_vault.db"
 MODEL_NAME = "microsoft/phi-2"
 
-# ---------- Database with schema migration ----------
+# ---------- Database with migration ----------
 def get_db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
@@ -103,7 +103,7 @@ if not os.path.exists(DB_PATH):
 else:
     ensure_table_schema()
 
-# ---------- Database helpers ----------
+# ---------- Helpers ----------
 def fetch_all():
     conn = get_db()
     df = pd.read_sql("SELECT * FROM Opportunities ORDER BY Id DESC", conn)
@@ -156,13 +156,12 @@ def delete_opportunity(opp_id):
     conn.commit()
     conn.close()
 
-# ---------- Keyword extraction ----------
+# ---------- Keyword & AI ----------
 def extract_keywords(text):
     words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
     stopwords = {"the","and","for","with","from","into","about","without","etc","this","that","have","are"}
     return set(w for w in words if w not in stopwords)
 
-# ---------- Local AI ----------
 _model = None
 _tokenizer = None
 
@@ -187,7 +186,6 @@ def generate_text(prompt, max_length=512):
         generated = generated[len(prompt):].strip()
     return generated
 
-# ---------- AI generation functions ----------
 def align_profile(profile, description):
     achievements = [a.strip() for a in profile['Achievements'].split(';') if a.strip()]
     skills = [s.strip() for s in profile['Skills'].split(',') if s.strip()]
@@ -299,10 +297,10 @@ def open_browser(link):
         st.error(f"Browser error: {e}")
         return None
 
-# ---------- Streamlit UI ----------
+# ---------- UI ----------
 st.set_page_config(layout="wide", page_title="🎓 AI Application Dashboard", page_icon="🎓")
 
-# Golden theme CSS
+# Golden theme
 st.markdown("""
 <style>
 .stApp {
@@ -329,7 +327,7 @@ st.markdown("""
 st.title("🎓 Scholarship & Job AI Dashboard")
 st.markdown("<p class='golden-text' style='font-size:1.2rem;'>Powered by your own local AI</p>", unsafe_allow_html=True)
 
-# Sidebar deadline monitor
+# Sidebar
 st.sidebar.title("📅 Deadline Monitor")
 df_all = fetch_all()
 if not df_all.empty:
@@ -369,8 +367,8 @@ else:
     col3.metric("⏳ Pending", 0)
     col4.metric("🔴 Urgent", 0)
 
-# ---------- Combined Chart (Bar + Line) using Altair ----------
-st.subheader("📈 Application Progress Over Time")
+# Charts (Altair)
+st.subheader("📈 Application Progress")
 if not df.empty:
     applied_df = df[df['Status'] == 'Applied'].copy()
     if not applied_df.empty:
@@ -380,36 +378,28 @@ if not df.empty:
         daily = daily.sort_values('Date')
         daily['Cumulative'] = daily['Daily'].cumsum()
 
-        # Create a combined chart: bar for daily, line for cumulative
-        # We'll use a layered chart with dual axis (but Altair doesn't support dual axis easily)
-        # Instead, we'll make two separate charts side by side or stacked.
-        # Or we can use a single chart with a line for cumulative and bar for daily (dual axis possible with resolve_scale)
-        # For simplicity, we'll show two charts: daily bar and cumulative line (in two columns or stacked)
-        col_left, col_right = st.columns(2)
-        with col_left:
+        col_chart1, col_chart2 = st.columns(2)
+        with col_chart1:
             bar = alt.Chart(daily).mark_bar(color='gold', opacity=0.7).encode(
                 x='Date:T',
-                y='Daily:Q',
-                tooltip=['Date', 'Daily']
+                y='Daily:Q'
             ).properties(title='Daily Applications', height=300)
             st.altair_chart(bar, use_container_width=True)
-        with col_right:
+        with col_chart2:
             line = alt.Chart(daily).mark_line(point=True, color='silver').encode(
                 x='Date:T',
-                y='Cumulative:Q',
-                tooltip=['Date', 'Cumulative']
+                y='Cumulative:Q'
             ).properties(title='Cumulative Total', height=300)
             st.altair_chart(line, use_container_width=True)
 
         # Hour analysis
-        st.subheader("⏰ Applications by Hour (Productivity Analysis)")
+        st.subheader("⏰ Applications by Hour")
         applied_df['Hour'] = applied_df['AppliedTS'].dt.hour
         hour_counts = applied_df['Hour'].value_counts().sort_index().reset_index()
         hour_counts.columns = ['Hour', 'Count']
         hour_chart = alt.Chart(hour_counts).mark_bar(color='gold', opacity=0.8).encode(
             x='Hour:O',
-            y='Count:Q',
-            tooltip=['Hour', 'Count']
+            y='Count:Q'
         ).properties(title='Applications by Hour of Day', height=300)
         st.altair_chart(hour_chart, use_container_width=True)
     else:
@@ -434,7 +424,7 @@ else:
     display_cols = ["Id", "Title", "Organization", "Deadline", "Deadline Alert", "Status", "Saved"]
     st.dataframe(df[display_cols], use_container_width=True)
 
-    selected_id = st.selectbox("Select Opportunity ID for detailed actions", df["Id"].tolist())
+    selected_id = st.selectbox("Select Opportunity ID", df["Id"].tolist())
     if selected_id:
         row = df[df["Id"] == selected_id].iloc[0]
         profile_df = fetch_profile()
@@ -446,7 +436,7 @@ else:
                 st.write(f"**Deadline:** {row['Deadline']} {deadline_color(row['Deadline'])}")
                 st.write(f"**Status:** {row['Status']}")
                 st.write(f"**Link:** {row['Link']}")
-                description = st.text_area("Paste full job description", value=row["UserDescription"] or "", height=150)
+                description = st.text_area("Paste job description", value=row["UserDescription"] or "", height=150)
 
                 col_gen, col_status, col_del, col_browser = st.columns(4)
                 with col_gen:
@@ -486,7 +476,7 @@ else:
                     st.text_area("Motivation Letter", row['GeneratedML'], height=200)
                     st.download_button("⬇️ Download Motivation Letter", data=row['GeneratedML'], file_name=f"ML_{row['Title']}.txt")
 
-# Add new opportunity
+# Add new
 with st.expander("➕ Add New Opportunity"):
     with st.form("add_form"):
         title = st.text_input("Title *")
@@ -507,4 +497,4 @@ with st.expander("➕ Add New Opportunity"):
             else:
                 st.warning("Title and Organization required.")
 
-st.caption("⚡ Powered by local AI (Phi-2) | Golden Theme | Altair Charts")
+st.caption("⚡ Powered by local AI (Phi-2) | Altair Charts")

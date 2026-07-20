@@ -1,5 +1,5 @@
 # ============================================================
-# ULTIMATE AI-POWERED APPLICATION DASHBOARD WITH ANIMATED BG
+# ULTIMATE AI-POWERED DASHBOARD WITH PLOTLY CHARTS
 # ============================================================
 import streamlit as st
 import pandas as pd
@@ -9,9 +9,8 @@ from datetime import datetime, timedelta
 import os
 import plotly.express as px
 import plotly.graph_objects as go
-import altair as alt  # fallback, but we mainly use plotly
 
-# ---------- Local AI (transformers) ----------
+# ---------- Local AI ----------
 try:
     from transformers import AutoModelForCausalLM, AutoTokenizer
     AI_AVAILABLE = True
@@ -19,9 +18,9 @@ except ImportError:
     AI_AVAILABLE = False
 
 # ---------- Configuration ----------
-USE_LOCAL_AI = True          # Set False to disable AI
+USE_LOCAL_AI = True          # Set False to skip AI download
 DB_PATH = "pipeline_vault.db"
-MODEL_NAME = "microsoft/phi-2"  # ~2.7GB, runs on CPU
+MODEL_NAME = "microsoft/phi-2"
 
 # ---------- Database with schema migration ----------
 def get_db():
@@ -36,7 +35,7 @@ def ensure_table_schema():
         "GeneratedCV": "TEXT",
         "GeneratedCL": "TEXT",
         "GeneratedML": "TEXT",
-        "AppliedTimestamp": "TEXT"   # full timestamp when applied
+        "AppliedTimestamp": "TEXT"
     }
     for col, typ in needed.items():
         if col not in existing:
@@ -105,7 +104,7 @@ if not os.path.exists(DB_PATH):
 else:
     ensure_table_schema()
 
-# ---------- Database helper functions ----------
+# ---------- Database helpers ----------
 def fetch_all():
     conn = get_db()
     df = pd.read_sql("SELECT * FROM Opportunities ORDER BY Id DESC", conn)
@@ -164,7 +163,7 @@ def extract_keywords(text):
     stopwords = {"the","and","for","with","from","into","about","without","etc","this","that","have","are"}
     return set(w for w in words if w not in stopwords)
 
-# ---------- Local AI model (lazy) ----------
+# ---------- Local AI ----------
 _model = None
 _tokenizer = None
 
@@ -189,7 +188,7 @@ def generate_text(prompt, max_length=512):
         generated = generated[len(prompt):].strip()
     return generated
 
-# ---------- AI-based generation ----------
+# ---------- AI generation functions ----------
 def align_profile(profile, description):
     achievements = [a.strip() for a in profile['Achievements'].split(';') if a.strip()]
     skills = [s.strip() for s in profile['Skills'].split(',') if s.strip()]
@@ -284,7 +283,7 @@ I look forward to contributing to your program.
 Sincerely,
 {profile['Name']}"""
 
-# ---------- Selenium helper (optional) ----------
+# ---------- Selenium helper ----------
 def open_browser(link):
     try:
         from selenium import webdriver
@@ -301,130 +300,37 @@ def open_browser(link):
         st.error(f"Browser error: {e}")
         return None
 
-# ---------- Streamlit UI with Animated Background ----------
+# ---------- Streamlit UI ----------
 st.set_page_config(layout="wide", page_title="🎓 AI Application Dashboard", page_icon="🎓")
 
-# ---- Custom CSS for animated background ----
+# Animated background CSS (golden theme)
 st.markdown("""
 <style>
-    /* Full screen background with gradient and moving elements */
-    .stApp {
-        background: linear-gradient(180deg, #1a1a2e 0%, #16213e 30%, #0f3460 60%, #533483 100%);
-        position: relative;
-        overflow: hidden;
-    }
-    /* Clouds */
-    .cloud {
-        position: absolute;
-        background: rgba(255, 255, 255, 0.15);
-        border-radius: 50%;
-        animation: floatCloud linear infinite;
-        pointer-events: none;
-        z-index: 0;
-    }
-    @keyframes floatCloud {
-        0% { transform: translateX(-200px); }
-        100% { transform: translateX(calc(100vw + 200px)); }
-    }
-    /* Birds */
-    .bird {
-        position: absolute;
-        font-size: 24px;
-        color: rgba(255, 215, 0, 0.6);
-        animation: flyBird ease-in-out infinite alternate;
-        pointer-events: none;
-        z-index: 0;
-    }
-    @keyframes flyBird {
-        0% { transform: translate(0, 0) rotate(0deg); }
-        100% { transform: translate(100px, -50px) rotate(5deg); }
-    }
-    /* Ocean waves */
-    .wave {
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        width: 200%;
-        height: 120px;
-        background: repeating-linear-gradient(90deg, 
-            rgba(0, 150, 255, 0.2) 0%, 
-            rgba(0, 200, 255, 0.3) 25%, 
-            rgba(0, 150, 255, 0.2) 50%);
-        border-radius: 50% 50% 0 0;
-        animation: waveMove 8s linear infinite;
-        pointer-events: none;
-        z-index: 0;
-    }
-    @keyframes waveMove {
-        0% { transform: translateX(0); }
-        100% { transform: translateX(-50%); }
-    }
-    /* Golden accents */
-    .golden-text {
-        color: #FFD700;
-        text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
-    }
-    .silver-text {
-        color: #C0C0C0;
-        text-shadow: 0 0 8px rgba(192, 192, 192, 0.4);
-    }
-    /* Make content appear above background */
-    .main > div {
-        position: relative;
-        z-index: 1;
-    }
-    /* Metrics styling */
-    .css-1y4p8pa {
-        background: rgba(0,0,0,0.3) !important;
-        backdrop-filter: blur(10px);
-        border-radius: 15px;
-        padding: 15px;
-        border: 1px solid rgba(255, 215, 0, 0.3);
-    }
-    /* Buttons golden */
-    .stButton button {
-        background: linear-gradient(145deg, #FFD700, #B8860B) !important;
-        color: #1a1a2e !important;
-        border-radius: 30px !important;
-        border: none !important;
-        font-weight: bold !important;
-        box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4) !important;
-        transition: all 0.3s ease !important;
-    }
-    .stButton button:hover {
-        transform: scale(1.05);
-        box-shadow: 0 6px 25px rgba(255, 215, 0, 0.6) !important;
-    }
-    /* Dataframe golden border */
-    .dataframe {
-        border: 1px solid #FFD700 !important;
-        border-radius: 10px !important;
-    }
-    /* Expanders golden */
-    .streamlit-expanderHeader {
-        background: rgba(255, 215, 0, 0.1) !important;
-        border-radius: 10px !important;
-        border-left: 4px solid #FFD700 !important;
-    }
+.stApp {
+    background: linear-gradient(180deg, #1a1a2e 0%, #16213e 30%, #0f3460 60%, #533483 100%);
+}
+.golden-text {
+    color: #FFD700;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+.stButton button {
+    background: linear-gradient(145deg, #FFD700, #B8860B) !important;
+    color: #1a1a2e !important;
+    border-radius: 30px !important;
+    border: none !important;
+    font-weight: bold !important;
+    box-shadow: 0 4px 15px rgba(255, 215, 0, 0.4) !important;
+}
+.stButton button:hover {
+    transform: scale(1.05);
+}
 </style>
 """, unsafe_allow_html=True)
 
-# ---- Animated background elements ----
-st.markdown("""
-<div class="cloud" style="width:200px; height:80px; top:10%; animation-duration:25s; animation-delay:0s;"></div>
-<div class="cloud" style="width:300px; height:100px; top:30%; animation-duration:35s; animation-delay:5s;"></div>
-<div class="cloud" style="width:150px; height:60px; top:60%; animation-duration:20s; animation-delay:10s;"></div>
-<div class="bird" style="top:15%; left:10%; animation-duration:6s;">🐦</div>
-<div class="bird" style="top:25%; left:40%; animation-duration:8s; animation-delay:2s;">🕊️</div>
-<div class="bird" style="top:50%; left:70%; animation-duration:7s; animation-delay:4s;">🐦</div>
-<div class="wave"></div>
-""", unsafe_allow_html=True)
-
-# ---- Main content ----
 st.title("🎓 Scholarship & Job AI Dashboard")
-st.markdown("<p class='golden-text' style='font-size:1.2rem;'>Powered by your own local AI • Golden & Silver Edition</p>", unsafe_allow_html=True)
+st.markdown("<p class='golden-text' style='font-size:1.2rem;'>Powered by your own local AI</p>", unsafe_allow_html=True)
 
-# ---- Sidebar (Deadline Monitor) ----
+# Sidebar deadline monitor
 st.sidebar.title("📅 Deadline Monitor")
 df_all = fetch_all()
 if not df_all.empty:
@@ -434,7 +340,6 @@ if not df_all.empty:
     urgent = df_all[df_all['DaysLeft'] <= 10]
     upcoming = df_all[(df_all['DaysLeft'] > 10) & (df_all['DaysLeft'] <= 30)]
     safe = df_all[df_all['DaysLeft'] > 30]
-
     st.sidebar.markdown("### 🔴 Urgent (≤10 days)")
     for _, row in urgent.iterrows():
         st.sidebar.write(f"• {row['Title']} ({row['DaysLeft']} days left)")
@@ -447,7 +352,7 @@ if not df_all.empty:
 else:
     st.sidebar.info("No opportunities yet.")
 
-# ---- Metrics ----
+# Metrics
 col1, col2, col3, col4 = st.columns(4)
 df = fetch_all()
 if not df.empty:
@@ -465,23 +370,17 @@ else:
     col3.metric("⏳ Pending", 0)
     col4.metric("🔴 Urgent", 0)
 
-# ---- Combined Chart (Bar + Line) ----
+# Combined Chart (Bar + Line)
 st.subheader("📈 Application Progress Over Time")
 if not df.empty:
-    # Filter applied opportunities
     applied_df = df[df['Status'] == 'Applied'].copy()
     if not applied_df.empty:
-        # Convert AppliedTimestamp to datetime
         applied_df['AppliedTS'] = pd.to_datetime(applied_df['AppliedTimestamp'])
-        # Daily count
         daily = applied_df.groupby(applied_df['AppliedTS'].dt.date).size().reset_index(name='Daily')
         daily.columns = ['Date', 'Daily']
         daily = daily.sort_values('Date')
-        # Cumulative sum
         daily['Cumulative'] = daily['Daily'].cumsum()
-        # Create combined chart using Plotly
         fig = go.Figure()
-        # Bar trace for daily
         fig.add_trace(go.Bar(
             x=daily['Date'],
             y=daily['Daily'],
@@ -490,7 +389,6 @@ if not df.empty:
             opacity=0.7,
             yaxis='y1'
         ))
-        # Line trace for cumulative
         fig.add_trace(go.Scatter(
             x=daily['Date'],
             y=daily['Cumulative'],
@@ -500,7 +398,6 @@ if not df.empty:
             marker=dict(color='#C0C0C0', size=8),
             yaxis='y2'
         ))
-        # Update layout with dual y-axes
         fig.update_layout(
             title='Daily Applications (bars) & Cumulative Total (line)',
             xaxis_title='Date',
@@ -513,24 +410,23 @@ if not df.empty:
         )
         st.plotly_chart(fig, use_container_width=True)
 
-        # ---- Hour of Day Analysis ----
+        # Hour analysis
         st.subheader("⏰ Applications by Hour (Productivity Analysis)")
-        # Extract hour from AppliedTimestamp
         applied_df['Hour'] = applied_df['AppliedTS'].dt.hour
         hour_counts = applied_df['Hour'].value_counts().sort_index().reset_index()
         hour_counts.columns = ['Hour', 'Count']
         fig_hour = px.bar(hour_counts, x='Hour', y='Count', 
-                          title='Number of Applications Submitted by Hour of Day',
+                          title='Applications by Hour of Day',
                           color='Count', color_continuous_scale='gold',
-                          labels={'Hour':'Hour of Day (0-23)', 'Count':'Applications'})
+                          labels={'Hour':'Hour (0-23)', 'Count':'Applications'})
         fig_hour.update_layout(template='plotly_dark', plot_bgcolor='rgba(0,0,0,0.3)')
         st.plotly_chart(fig_hour, use_container_width=True)
     else:
-        st.info("No applications submitted yet. Start applying to see trends!")
+        st.info("No applications submitted yet.")
 else:
-    st.info("No opportunities yet. Add one below.")
+    st.info("No opportunities yet.")
 
-# ---- Opportunities Table ----
+# Opportunities table
 st.subheader("📋 All Opportunities")
 if df.empty:
     st.info("No opportunities yet. Add one below.")
@@ -547,87 +443,77 @@ else:
     display_cols = ["Id", "Title", "Organization", "Deadline", "Deadline Alert", "Status", "Saved"]
     st.dataframe(df[display_cols], use_container_width=True)
 
-    # ---- Detailed Actions ----
     selected_id = st.selectbox("Select Opportunity ID for detailed actions", df["Id"].tolist())
     if selected_id:
         row = df[df["Id"] == selected_id].iloc[0]
         profile_df = fetch_profile()
         if profile_df.empty:
-            st.error("MasterProfile is empty. Please add your profile data.")
+            st.error("MasterProfile is empty.")
         else:
             profile = profile_df.iloc[0].to_dict()
             with st.expander(f"📄 {row['Title']} – {row['Organization']}", expanded=True):
                 st.write(f"**Deadline:** {row['Deadline']} {deadline_color(row['Deadline'])}")
                 st.write(f"**Status:** {row['Status']}")
                 st.write(f"**Link:** {row['Link']}")
-                description = st.text_area("Paste full job description here (AI will use it to tailor docs)",
-                                           value=row["UserDescription"] or "", height=200)
+                description = st.text_area("Paste full job description", value=row["UserDescription"] or "", height=150)
 
                 col_gen, col_status, col_del, col_browser = st.columns(4)
                 with col_gen:
-                    if st.button("⚡ Generate Documents (AI)", key="gen_docs"):
-                        with st.spinner("🤖 AI is writing your tailored documents..."):
+                    if st.button("⚡ Generate Documents (AI)"):
+                        with st.spinner("Generating..."):
                             cv = generate_cv(profile, description)
                             cl = generate_cover_letter(profile, description)
                             ml = generate_motivation_letter(profile, description)
                             update_generated_docs(selected_id, cv, cl, ml)
-                            st.success("✅ Documents generated and saved!")
+                            st.success("✅ Generated and saved!")
                             st.rerun()
                 with col_status:
-                    if st.button("✅ Mark as Applied", key="mark_applied"):
+                    if st.button("✅ Mark as Applied"):
                         update_status(selected_id, "Applied")
                         st.rerun()
                 with col_del:
-                    if st.button("🗑️ Delete", key="del_opp"):
+                    if st.button("🗑️ Delete"):
                         delete_opportunity(selected_id)
                         st.rerun()
                 with col_browser:
-                    if st.button("🌐 Open Link", key="open_link"):
+                    if st.button("🌐 Open Link"):
                         if row['Link'] and row['Link'].startswith("http"):
                             open_browser(row['Link'])
                         else:
-                            st.warning("No valid link provided.")
+                            st.warning("No link")
 
-                # Display generated documents
                 if row['GeneratedCV']:
-                    st.subheader("📄 Generated CV")
+                    st.subheader("📄 CV")
                     st.text_area("CV", row['GeneratedCV'], height=200)
-                    st.download_button("⬇️ Download CV", data=row['GeneratedCV'], file_name=f"CV_{row['Title']}.txt", key="dl_cv")
+                    st.download_button("⬇️ Download CV", data=row['GeneratedCV'], file_name=f"CV_{row['Title']}.txt")
                 if row['GeneratedCL']:
                     st.subheader("✉️ Cover Letter")
                     st.text_area("Cover Letter", row['GeneratedCL'], height=200)
-                    st.download_button("⬇️ Download Cover Letter", data=row['GeneratedCL'], file_name=f"CL_{row['Title']}.txt", key="dl_cl")
+                    st.download_button("⬇️ Download Cover Letter", data=row['GeneratedCL'], file_name=f"CL_{row['Title']}.txt")
                 if row['GeneratedML']:
                     st.subheader("📨 Motivation Letter")
                     st.text_area("Motivation Letter", row['GeneratedML'], height=200)
-                    st.download_button("⬇️ Download Motivation Letter", data=row['GeneratedML'], file_name=f"ML_{row['Title']}.txt", key="dl_ml")
+                    st.download_button("⬇️ Download Motivation Letter", data=row['GeneratedML'], file_name=f"ML_{row['Title']}.txt")
 
-# ---- Add New Opportunity ----
-with st.expander("➕ Add New Opportunity", expanded=False):
+# Add new
+with st.expander("➕ Add New Opportunity"):
     with st.form("add_form"):
         title = st.text_input("Title *")
         org = st.text_input("Organization *")
-        cat = st.selectbox("Category", ["Scholarship", "Job", "Fellowship", "Other"])
+        cat = st.selectbox("Category", ["Scholarship", "Job"])
         deadline = st.date_input("Deadline", value=datetime.today().date() + timedelta(days=30))
         link = st.text_input("Link (optional)")
-        description_input = st.text_area("Description (paste full details here)", height=150)
-        submitted = st.form_submit_button("Add Opportunity")
-        if submitted:
+        desc = st.text_area("Description", height=100)
+        if st.form_submit_button("Add Opportunity"):
             if title and org:
-                data = {
-                    "title": title,
-                    "organization": org,
-                    "category": cat,
-                    "deadline": deadline,
-                    "status": "Not Applied",
-                    "description": description_input,
-                    "link": link
-                }
-                add_opportunity(data)
-                st.success("✅ Opportunity added! Scroll up to see it.")
+                add_opportunity({
+                    "title": title, "organization": org, "category": cat,
+                    "deadline": deadline, "status": "Not Applied",
+                    "description": desc, "link": link
+                })
+                st.success("✅ Added!")
                 st.rerun()
             else:
-                st.warning("Title and Organization are required.")
+                st.warning("Title and Organization required.")
 
-st.markdown("---")
-st.caption("⚡ Powered by local AI (Phi-2) | Golden & Silver Theme | Animated Sky Background")
+st.caption("⚡ Powered by local AI (Phi-2) | Golden Theme | Plotly Charts")

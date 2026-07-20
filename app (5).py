@@ -1,7 +1,7 @@
 # app.py
 import streamlit as st
 import pandas as pd
-import pyodbc
+import sqlite3
 import re
 from datetime import datetime, timedelta
 
@@ -11,78 +11,99 @@ from datetime import datetime, timedelta
 st.set_page_config(layout="wide", page_title="Scholarship & Job AI Dashboard", page_icon="🎓")
 
 # ==========================================
-# DATABASE CONNECTION (SQL SERVER)
+# DATABASE (SQLite)
 # ==========================================
-conn_str = (
-    "Driver={ODBC Driver 17 for SQL Server};"
-    "Server=DESKTOP-08UB9BT\\SQLEXPRESS;"
-    "Database=ScholarshipJobDB;"
-    "Trusted_Connection=yes;"
-)
+DB_PATH = "pipeline_vault.db"
 
 def get_db():
-    try:
-        return pyodbc.connect(conn_str)
-    except Exception as e:
-        st.error(f"❌ Database connection failed: {e}")
-        return None
+    return sqlite3.connect(DB_PATH, check_same_thread=False)
+
+def init_db():
+    conn = get_db()
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS Opportunities (
+        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+        Title TEXT,
+        Organization TEXT,
+        Category TEXT,
+        Deadline TEXT,
+        Status TEXT,
+        CreatedAt TEXT,
+        Saved INTEGER DEFAULT 0
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS MasterProfile (
+        Id INTEGER PRIMARY KEY AUTOINCREMENT,
+        Name TEXT,
+        Email TEXT,
+        Phone TEXT,
+        Location TEXT,
+        Education TEXT,
+        Experience TEXT,
+        Achievements TEXT,
+        Skills TEXT,
+        Certifications TEXT,
+        NarrativeContext TEXT,
+        NarrativeSolution TEXT,
+        NarrativeCTA TEXT
+    )''')
+    # Insert default profile if empty
+    c.execute("SELECT COUNT(*) FROM MasterProfile")
+    if c.fetchone()[0] == 0:
+        c.execute("""INSERT INTO MasterProfile
+            (Name, Email, Phone, Location, Education, Experience, Achievements, Skills, Certifications,
+             NarrativeContext, NarrativeSolution, NarrativeCTA)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""", (
+            "ZEDAGIM TESFAYE TANTU",
+            "zedagim100@gmail.com",
+            "+251-924-700-390",
+            "Jigjiga, Ethiopia",
+            "Bachelor of Engineering in Water Resource & Irrigation Engineering (GPA: 3.87/4.00)",
+            "Water resource engineering, irrigation systems, satellite data analysis, climate prediction.",
+            "Developed Hydro-Agritech prototypes; Digitized FAO-56 Penman-Monteith; Prevented 456+ trafficking cases.",
+            "Python, GIS, Remote Sensing, Machine Learning, Data Analysis, Project Management",
+            "Certified in GeoAI, Digital Irrigation Systems",
+            "Developing regions rely heavily on traditional agricultural systems without enough data arrays.",
+            "Deploy spaceborne remote sensing arrays and validated Earth Observation data.",
+            "I am ready to discuss my potential alignment with your goals."
+        ))
+    conn.commit()
+    conn.close()
+
+init_db()
 
 # ==========================================
-# DATABASE HELPERS
+# HELPERS
 # ==========================================
 def fetch_all():
     conn = get_db()
-    if conn is None: return pd.DataFrame()
-    try:
-        df = pd.read_sql("SELECT * FROM Opportunities ORDER BY Id DESC", conn)
-    except Exception as e:
-        st.error(f"❌ Error reading Opportunities table: {e}")
-        df = pd.DataFrame()
+    df = pd.read_sql("SELECT * FROM Opportunities ORDER BY Id DESC", conn)
     conn.close()
     return df
 
 def fetch_profile():
     conn = get_db()
-    if conn is None: return pd.DataFrame()
-    try:
-        df = pd.read_sql("SELECT * FROM MasterProfile", conn)
-    except Exception as e:
-        st.error(f"❌ Error reading MasterProfile table: {e}")
-        df = pd.DataFrame()
+    df = pd.read_sql("SELECT * FROM MasterProfile LIMIT 1", conn)
     conn.close()
     return df
 
 def add_opportunity(data):
     conn = get_db()
-    if conn is None: return
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO Opportunities (Title, Organization, Category, Deadline, Status, CreatedAt, Saved)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            data["title"],
-            data["organization"],
-            data["category"],
-            data["deadline"].strftime("%Y-%m-%d"),
-            data["status"],
-            data["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
-            data["saved"]
-        ))
-        conn.commit()
-    except Exception as e:
-        st.error(f"❌ Error inserting opportunity: {e}")
+    c = conn.cursor()
+    c.execute("""INSERT INTO Opportunities
+        (Title, Organization, Category, Deadline, Status, CreatedAt, Saved)
+        VALUES (?,?,?,?,?,?,?)""", (
+        data["title"], data["organization"], data["category"],
+        data["deadline"].strftime("%Y-%m-%d"), data["status"],
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0
+    ))
+    conn.commit()
     conn.close()
 
 def delete_opportunity(opp_id):
     conn = get_db()
-    if conn is None: return
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM Opportunities WHERE Id = ?", (opp_id,))
-        conn.commit()
-    except Exception as e:
-        st.error(f"❌ Error deleting opportunity: {e}")
+    c = conn.cursor()
+    c.execute("DELETE FROM Opportunities WHERE Id = ?", (opp_id,))
+    conn.commit()
     conn.close()
 
 # ==========================================
@@ -129,7 +150,6 @@ Certifications:
 # MAIN UI
 # ==========================================
 st.title("🎓 Scholarship & Job AI Dashboard")
-st.markdown("Track opportunities, deadlines, and generate AI-powered applications.")
 
 df = fetch_all()
 
@@ -146,7 +166,6 @@ else:
         return "🟢"
 
     df["deadline_alert"] = df["Deadline"].apply(deadline_color)
-
     st.dataframe(df[["Id","Title","Organization","Deadline","deadline_alert","Status","Saved"]],
                  use_container_width=True)
 
@@ -155,15 +174,13 @@ else:
         row = df[df["Id"] == selected_id].iloc[0]
         profile_df = fetch_profile()
         if profile_df.empty:
-            st.error("❌ MasterProfile table is empty or missing.")
+            st.error("MasterProfile table is empty.")
         else:
             profile = profile_df.iloc[0].to_dict()
             description = st.text_area("Paste Job/Scholarship Description Here")
-
             if st.button("Generate CV"):
                 cv = generate_cv(profile, description)
                 st.download_button("Download CV", data=cv, file_name="cv.txt")
-
             if st.button("Delete Opportunity"):
                 delete_opportunity(selected_id)
                 st.rerun()
@@ -176,15 +193,8 @@ with st.expander("➕ Add New Opportunity"):
         deadline = st.date_input("Deadline", value=datetime.today().date()+timedelta(days=30))
         if st.form_submit_button("Add"):
             if title and org:
-                data = {
-                    "title": title,
-                    "organization": org,
-                    "category": cat,
-                    "deadline": deadline,
-                    "status": "Not Applied",
-                    "created_at": datetime.now(),
-                    "saved": 0
-                }
+                data = {"title": title, "organization": org, "category": cat,
+                        "deadline": deadline, "status": "Not Applied"}
                 add_opportunity(data)
                 st.success("Opportunity added!")
                 st.rerun()

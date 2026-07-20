@@ -1,4 +1,4 @@
-# app.py
+# app.py (FIXED – sidebar .dt error resolved)
 import streamlit as st
 import pandas as pd
 import sqlite3
@@ -6,35 +6,30 @@ import re
 from datetime import datetime, timedelta
 import os
 
-# Optional: local AI imports (lazy)
+# Optional AI
 try:
     from transformers import AutoModelForCausalLM, AutoTokenizer
     AI_AVAILABLE = True
 except ImportError:
     AI_AVAILABLE = False
 
-# ------------------ CONFIGURATION ------------------
-USE_LOCAL_AI = True  # Set False to disable AI
+# ------------------ CONFIG ------------------
+USE_LOCAL_AI = True   # Set False to disable AI
 DB_PATH = "pipeline_vault.db"
 MODEL_NAME = "microsoft/phi-2"
 
-# ------------------ DATABASE HELPERS (with migration) ------------------
+# ------------------ DATABASE (with migration) ------------------
 def get_db():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
 def ensure_table_schema():
-    """Add missing columns if they don't exist (prevents errors)."""
     conn = get_db()
     c = conn.cursor()
     c.execute("PRAGMA table_info(Opportunities)")
-    existing_cols = [col[1] for col in c.fetchall()]
-    needed = {
-        "GeneratedCV": "TEXT",
-        "GeneratedCL": "TEXT",
-        "GeneratedML": "TEXT"
-    }
+    existing = [col[1] for col in c.fetchall()]
+    needed = {"GeneratedCV": "TEXT", "GeneratedCL": "TEXT", "GeneratedML": "TEXT"}
     for col, typ in needed.items():
-        if col not in existing_cols:
+        if col not in existing:
             c.execute(f"ALTER TABLE Opportunities ADD COLUMN {col} {typ}")
     conn.commit()
     conn.close()
@@ -44,41 +39,21 @@ def reset_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS Opportunities (
         Id INTEGER PRIMARY KEY AUTOINCREMENT,
-        Title TEXT,
-        Organization TEXT,
-        Category TEXT,
-        Deadline TEXT,
-        Status TEXT,
-        CreatedAt TEXT,
-        Saved INTEGER DEFAULT 0,
-        UserDescription TEXT,
-        Link TEXT,
-        GeneratedCV TEXT,
-        GeneratedCL TEXT,
-        GeneratedML TEXT
+        Title TEXT, Organization TEXT, Category TEXT, Deadline TEXT,
+        Status TEXT, CreatedAt TEXT, Saved INTEGER DEFAULT 0,
+        UserDescription TEXT, Link TEXT,
+        GeneratedCV TEXT, GeneratedCL TEXT, GeneratedML TEXT
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS Applications (
         Id INTEGER PRIMARY KEY AUTOINCREMENT,
-        OppId INTEGER,
-        AppliedDate TEXT,
-        SubmissionStatus TEXT,
-        Notes TEXT,
+        OppId INTEGER, AppliedDate TEXT, SubmissionStatus TEXT, Notes TEXT,
         FOREIGN KEY(OppId) REFERENCES Opportunities(Id)
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS MasterProfile (
         Id INTEGER PRIMARY KEY AUTOINCREMENT,
-        Name TEXT,
-        Email TEXT,
-        Phone TEXT,
-        Location TEXT,
-        Education TEXT,
-        Experience TEXT,
-        Achievements TEXT,
-        Skills TEXT,
-        Certifications TEXT,
-        NarrativeContext TEXT,
-        NarrativeSolution TEXT,
-        NarrativeCTA TEXT
+        Name TEXT, Email TEXT, Phone TEXT, Location TEXT, Education TEXT,
+        Experience TEXT, Achievements TEXT, Skills TEXT, Certifications TEXT,
+        NarrativeContext TEXT, NarrativeSolution TEXT, NarrativeCTA TEXT
     )''')
     c.execute("SELECT COUNT(*) FROM MasterProfile")
     if c.fetchone()[0] == 0:
@@ -102,7 +77,6 @@ def reset_db():
     conn.commit()
     conn.close()
 
-# Initialize DB: if file doesn't exist, create; else ensure schema
 if not os.path.exists(DB_PATH):
     reset_db()
 else:
@@ -165,7 +139,7 @@ def extract_keywords(text):
     stopwords = {"the","and","for","with","from","into","about","without","etc","this","that"}
     return set(w for w in words if w not in stopwords)
 
-# ------------------ LOCAL AI (LAZY LOAD) ------------------
+# ------------------ LOCAL AI (LAZY) ------------------
 _model = None
 _tokenizer = None
 
@@ -190,7 +164,7 @@ def generate_text(prompt, max_length=512):
         generated = generated[len(prompt):].strip()
     return generated
 
-# ------------------ GENERATION FUNCTIONS (AI + Fallback) ------------------
+# ------------------ GENERATION (AI + fallback) ------------------
 def align_profile(profile, description):
     achievements = [a.strip() for a in profile['Achievements'].split(';') if a.strip()]
     skills = [s.strip() for s in profile['Skills'].split(',') if s.strip()]
@@ -214,7 +188,6 @@ CV:"""
         result = generate_text(prompt, max_length=400)
         if result:
             return result
-    # Fallback
     matched_ach, matched_skills = align_profile(profile, description)
     return f"""Name: {profile['Name']}
 Email: {profile['Email']}
@@ -280,7 +253,7 @@ I look forward to contributing to your program.
 Sincerely,
 {profile['Name']}"""
 
-# ------------------ Selenium Helper (optional) ------------------
+# ------------------ SELENIUM HELPER (optional) ------------------
 def open_browser(link):
     try:
         from selenium import webdriver
@@ -300,16 +273,17 @@ def open_browser(link):
 # ------------------ STREAMLIT UI ------------------
 st.set_page_config(layout="wide", page_title="🎓 Scholarship & Job AI Dashboard")
 
-# Sidebar – Deadline Monitor
+# ============ SIDEBAR – DEADLINE MONITOR (FIXED) ============
 st.sidebar.title("📅 Deadline Monitor")
 df_all = fetch_all()
 if not df_all.empty:
-    today = datetime.today().date()
-    df_all['DeadlineDate'] = pd.to_datetime(df_all['Deadline']).dt.date
+    today = pd.Timestamp.today().normalize()  # Pandas timestamp at midnight
+    df_all['DeadlineDate'] = pd.to_datetime(df_all['Deadline']).dt.normalize()
     df_all['DaysLeft'] = (df_all['DeadlineDate'] - today).dt.days
     urgent = df_all[df_all['DaysLeft'] <= 10]
     upcoming = df_all[(df_all['DaysLeft'] > 10) & (df_all['DaysLeft'] <= 30)]
     safe = df_all[df_all['DaysLeft'] > 30]
+
     st.sidebar.markdown("### 🔴 Urgent (≤10 days)")
     for _, row in urgent.iterrows():
         st.sidebar.write(f"• {row['Title']} ({row['DaysLeft']} days left)")
@@ -320,6 +294,7 @@ if not df_all.empty:
     for _, row in safe.iterrows():
         st.sidebar.write(f"• {row['Title']} ({row['DaysLeft']} days left)")
 
+# ============ MAIN CONTENT ============
 st.title("🎓 Scholarship & Job AI Dashboard")
 
 df = fetch_all()
@@ -369,7 +344,6 @@ else:
                     update_status(selected_id, "Applied")
                     st.rerun()
 
-            # Show generated docs if present
             if row['GeneratedCV']:
                 st.subheader("📄 Generated CV")
                 st.text_area("CV", row['GeneratedCV'], height=200)
@@ -393,7 +367,7 @@ else:
                 delete_opportunity(selected_id)
                 st.rerun()
 
-# Add new opportunity
+# ============ ADD NEW OPPORTUNITY ============
 with st.expander("➕ Add New Opportunity"):
     with st.form("add"):
         title = st.text_input("Title")

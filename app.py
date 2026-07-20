@@ -24,23 +24,23 @@ def get_db():
     try:
         return pyodbc.connect(conn_str)
     except Exception as e:
-        st.error(f"Database connection failed: {e}")
+        st.error(f"❌ Database connection failed: {e}")
         return None
 
-# Fetch all opportunities
+# ==========================================
+# DATABASE HELPERS
+# ==========================================
 def fetch_all():
     conn = get_db()
-    if conn is None:
-        return pd.DataFrame()
+    if conn is None: return pd.DataFrame()
     try:
         df = pd.read_sql("SELECT * FROM Opportunities ORDER BY Id DESC", conn)
     except Exception as e:
-        st.error(f"Error reading Opportunities table: {e}")
+        st.error(f"❌ Error reading Opportunities table: {e}")
         df = pd.DataFrame()
     conn.close()
     return df
 
-# Add new opportunity
 def add_opportunity(data):
     conn = get_db()
     if conn is None: return
@@ -60,10 +60,9 @@ def add_opportunity(data):
         ))
         conn.commit()
     except Exception as e:
-        st.error(f"Error inserting opportunity: {e}")
+        st.error(f"❌ Error inserting opportunity: {e}")
     conn.close()
 
-# Delete opportunity
 def delete_opportunity(opp_id):
     conn = get_db()
     if conn is None: return
@@ -72,18 +71,16 @@ def delete_opportunity(opp_id):
         cursor.execute("DELETE FROM Opportunities WHERE Id = ?", (opp_id,))
         conn.commit()
     except Exception as e:
-        st.error(f"Error deleting opportunity: {e}")
+        st.error(f"❌ Error deleting opportunity: {e}")
     conn.close()
 
-# Fetch Master Profile
 def fetch_profile():
     conn = get_db()
-    if conn is None:
-        return pd.DataFrame()
+    if conn is None: return pd.DataFrame()
     try:
         df = pd.read_sql("SELECT * FROM MasterProfile", conn)
     except Exception as e:
-        st.error(f"Error reading MasterProfile table: {e}")
+        st.error(f"❌ Error reading MasterProfile table: {e}")
         df = pd.DataFrame()
     conn.close()
     return df
@@ -195,7 +192,7 @@ else:
         row = df[df["Id"] == selected_id].iloc[0]
         profile_df = fetch_profile()
         if profile_df.empty:
-            st.error("MasterProfile table is empty or missing.")
+            st.error("❌ MasterProfile table is empty or missing.")
         else:
             profile = profile_df.iloc[0].to_dict()
             description = st.text_area("Paste Job/Scholarship Description Here")

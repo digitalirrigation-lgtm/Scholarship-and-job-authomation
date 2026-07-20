@@ -7,9 +7,6 @@ from datetime import datetime, timedelta
 
 st.set_page_config(layout="wide", page_title="🎓 Scholarship & Job AI Dashboard", page_icon="🎓")
 
-# ==========================================
-# DATABASE (SQLite)
-# ==========================================
 DB_PATH = "pipeline_vault.db"
 
 def get_db():
@@ -70,9 +67,6 @@ def init_db():
 
 init_db()
 
-# ==========================================
-# HELPERS
-# ==========================================
 def fetch_all():
     conn = get_db()
     df = pd.read_sql("SELECT * FROM Opportunities ORDER BY Id DESC", conn)
@@ -113,9 +107,6 @@ def delete_opportunity(opp_id):
     conn.commit()
     conn.close()
 
-# ==========================================
-# AI ALIGNMENT ENGINE
-# ==========================================
 def extract_keywords(text):
     words = re.findall(r'\b[a-zA-Z]{3,}\b', text.lower())
     stopwords = {"the","and","for","with","from","into","about","without","etc"}
@@ -248,4 +239,7 @@ with st.expander("➕ Add New Opportunity"):
         cat = st.selectbox("Category", ["Scholarship","Job"])
         deadline = st.date_input("Deadline", value=datetime.today().date()+timedelta(days=30))
         link = st.text_input("Link (optional)")
-        description_input = st
+        description_input = st.text_area("Description (optional)", height=100)
+        if st.form_submit_button("Add Opportunity"):
+            if title and org:
+                data = {"title

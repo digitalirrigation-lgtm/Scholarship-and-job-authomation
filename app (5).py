@@ -5,10 +5,7 @@ import sqlite3
 import re
 from datetime import datetime, timedelta
 
-# ==========================================
-# PAGE CONFIG
-# ==========================================
-st.set_page_config(layout="wide", page_title="Scholarship & Job AI Dashboard", page_icon="🎓")
+st.set_page_config(layout="wide", page_title="🎓 Scholarship & Job AI Dashboard", page_icon="🎓")
 
 # ==========================================
 # DATABASE (SQLite)
@@ -29,7 +26,9 @@ def init_db():
         Deadline TEXT,
         Status TEXT,
         CreatedAt TEXT,
-        Saved INTEGER DEFAULT 0
+        Saved INTEGER DEFAULT 0,
+        UserDescription TEXT,
+        Link TEXT
     )''')
     c.execute('''CREATE TABLE IF NOT EXISTS MasterProfile (
         Id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,12 +89,20 @@ def add_opportunity(data):
     conn = get_db()
     c = conn.cursor()
     c.execute("""INSERT INTO Opportunities
-        (Title, Organization, Category, Deadline, Status, CreatedAt, Saved)
-        VALUES (?,?,?,?,?,?,?)""", (
+        (Title, Organization, Category, Deadline, Status, CreatedAt, Saved, UserDescription, Link)
+        VALUES (?,?,?,?,?,?,?,?,?)""", (
         data["title"], data["organization"], data["category"],
         data["deadline"].strftime("%Y-%m-%d"), data["status"],
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0
+        datetime.now().strftime("%Y-%m-%d %H:%M:%S"), 0,
+        data["description"], data["link"]
     ))
+    conn.commit()
+    conn.close()
+
+def update_opportunity(opp_id, column, value):
+    conn = get_db()
+    c = conn.cursor()
+    c.execute(f"UPDATE Opportunities SET {column} = ? WHERE Id = ?", (value, opp_id))
     conn.commit()
     conn.close()
 
@@ -146,6 +153,43 @@ Certifications:
 {profile['Certifications']}
 """
 
+def generate_cover_letter(profile, opportunity, description):
+    matched_ach, matched_skills = align_profile(profile, description)
+    return f"""
+Dear {opportunity['Organization']},
+
+I am applying for {opportunity['Title']} ({opportunity['Category']}).
+
+Your requirements emphasize: {description[:300]}...
+
+I bring aligned achievements:
+- {'\n- '.join(matched_ach)}
+
+My technical skills in {', '.join(matched_skills)} have been honed through real-world projects.
+
+{profile['NarrativeContext']}
+{profile['NarrativeSolution']}
+
+Sincerely,
+{profile['Name']}
+"""
+
+def generate_motivation_letter(profile, opportunity, description):
+    matched_ach, matched_skills = align_profile(profile, description)
+    return f"""
+Motivation Letter for {opportunity['Title']}:
+
+Aligned Achievements:
+{'; '.join(matched_ach)}
+
+Aligned Skills:
+{', '.join(matched_skills)}
+
+{profile['NarrativeContext']}
+{profile['NarrativeSolution']}
+{profile['NarrativeCTA']}
+"""
+
 # ==========================================
 # MAIN UI
 # ==========================================
@@ -177,11 +221,23 @@ else:
             st.error("MasterProfile table is empty.")
         else:
             profile = profile_df.iloc[0].to_dict()
-            description = st.text_area("Paste Job/Scholarship Description Here")
-            if st.button("Generate CV"):
+            description = st.text_area("Paste Job/Scholarship Description Here", value=row["UserDescription"] or "")
+            if st.button("⚡ Generate CV + Cover Letter + Motivation Letter"):
+                update_opportunity(selected_id, "UserDescription", description)
                 cv = generate_cv(profile, description)
-                st.download_button("Download CV", data=cv, file_name="cv.txt")
-            if st.button("Delete Opportunity"):
+                cover = generate_cover_letter(profile, row, description)
+                mot = generate_motivation_letter(profile, row, description)
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.text_area("CV Preview", cv, height=200)
+                    st.download_button("⬇️ Download CV", data=cv, file_name="cv.txt")
+                with col2:
+                    st.text_area("Cover Letter Preview", cover, height=200)
+                    st.download_button("⬇️ Download Cover Letter", data=cover, file_name="cover_letter.txt")
+                with col3:
+                    st.text_area("Motivation Letter Preview", mot, height=200)
+                    st.download_button("⬇️ Download Motivation Letter", data=mot, file_name="motivation_letter.txt")
+            if st.button("🗑️ Delete Opportunity"):
                 delete_opportunity(selected_id)
                 st.rerun()
 
@@ -190,14 +246,4 @@ with st.expander("➕ Add New Opportunity"):
         title = st.text_input("Title")
         org = st.text_input("Organization")
         cat = st.selectbox("Category", ["Scholarship","Job"])
-        deadline = st.date_input("Deadline", value=datetime.today().date()+timedelta(days=30))
-        if st.form_submit_button("Add"):
-            if title and org:
-                data = {"title": title, "organization": org, "category": cat,
-                        "deadline": deadline, "status": "Not Applied"}
-                add_opportunity(data)
-                st.success("Opportunity added!")
-                st.rerun()
-
-with st.expander("👤 Master Profile"):
-    st.dataframe(fetch_profile())
+        deadline = st.date_input("Deadline", value=datetime.today().date()+timedelta(days=

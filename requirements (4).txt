@@ -3,6 +3,5 @@ pandas
 transformers
 torch
 sentencepiece
-plotly
 selenium
 webdriver-manager

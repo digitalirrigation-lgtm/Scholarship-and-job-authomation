@@ -4,6 +4,3 @@ requests==2.32.3
 beautifulsoup4==4.12.3
 openpyxl==3.1.2
 altair==5.3.0
-torch
-transformers
-accelerate

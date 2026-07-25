@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 import os
 import altair as alt
 from bs4 import BeautifulSoup
-import openpyxl
+import openpyxl==3.1.2
 
 # ---------- PAGE CONFIG ----------
 st.set_page_config(
